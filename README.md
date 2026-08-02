@@ -2,6 +2,8 @@
 
 输入大模型 API, 对 DeepSeek V4 / Kimi K3 / Qwen / GLM / GPT 等主流大模型做精度评测。覆盖**预训练阶段**与**后训练阶段**的主流评测集, 测试后给出分数 + **乱码/异常输出分析** + 可视化报告。
 
+> 📌 **新服务器部署** 请看 [DEPLOY.md](DEPLOY.md) —— 从零上线的完整指南(含配置、数据集下载、Docker 沙箱、systemd 守护、故障排查)。
+
 ## 特性
 
 - **统一 API 客户端**: 一套 OpenAI 兼容客户端覆盖 DeepSeek / Kimi(Moonshot) / Qwen / GLM / OpenAI 等, 不依赖厂商 SDK
