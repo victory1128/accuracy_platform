@@ -1,0 +1,54 @@
+# =============================================================
+# 精度测试平台 配置示例
+# 复制为 config.yaml 后填入你自己的 API Key
+# =============================================================
+
+# 被测模型 (under-test model) —— 支持多个, 可同时评测多个模型对比
+# 所有字段都遵循 OpenAI 兼容协议 (DeepSeek / Kimi / Qwen / GLM / OpenAI 等)
+models:
+  - name: "deepseek-v4"
+    base_url: "https://api.deepseek.com/v1"
+    api_key: "sk-your-deepseek-key"
+    model: "deepseek-chat"            # 实际模型名
+    # temperature / max_tokens 等会由 runner 按评测集覆盖
+
+  - name: "kimi-k3"
+    base_url: "https://api.moonshot.cn/v1"
+    api_key: "sk-your-kimi-key"
+    model: "moonshot-v1-auto"
+
+  - name: "qwen3"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key: "sk-your-qwen-key"
+    model: "qwen-plus"
+
+# 裁判模型 (judge) —— 用于 MT-Bench / AlpacaEval / Arena-Hard 等 LLM 裁判评测集
+# 建议用一个比被测模型更强的模型
+judge:
+  name: "gpt-4o-judge"
+  base_url: "https://api.openai.com/v1"
+  api_key: "sk-your-openai-key"
+  model: "gpt-4o"
+
+# 运行参数
+run:
+  concurrency: 4            # 并发请求数
+  max_retries: 3            # 失败重试次数
+  timeout: 120              # 单请求超时(秒)
+  limit: null               # 每个评测集最多采样条数, null=全量
+  seed: 42                  # 随机种子(采样/打乱用)
+
+# 默认要跑的评测集 (可用 cli --benchmarks 覆盖)
+benchmarks:
+  - mmlu
+  - mmlu_pro
+  - gsm8k
+  - math500
+  - humaneval
+  - ifeval
+  - mt_bench
+
+# 输出
+output:
+  dir: "results"            # 结果输出目录
+  save_raw: true            # 是否保存每条原始响应

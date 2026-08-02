@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>历史报告</title>
+<style>
+:root { --bg:#f8fafc; --card:#ffffff; --border:#e2e8f0; --fg:#0f172a; --muted:#64748b; --accent:#4f46e5; }
+body { margin:0; font-family:-apple-system,"PingFang SC",sans-serif; background:var(--bg); color:var(--fg); line-height:1.6; }
+.container { max-width:880px; margin:0 auto; padding:24px; }
+h1 { font-size:20px; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; }
+table { width:100%; border-collapse:collapse; }
+th,td { padding:9px 10px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }
+th { color:var(--muted); font-size:12px; }
+a { color:var(--accent); text-decoration:none; }
+.btn { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:9px 18px; font-size:14px; text-decoration:none; display:inline-block; }
+.empty { color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>历史报告</h1>
+  <div class="card">
+    {% if reports %}
+    <table>
+      <thead><tr><th>报告</th><th>大小</th><th>时间</th><th></th></tr></thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td>{{ r.name }}</td>
+          <td>{{ (r.size/1024)|round(1) }} KB</td>
+          <td data-ts="{{ r.mtime }}">{{ r.mtime }}</td>
+          <td><a href="/report/{{ r.filename }}" target="_blank">查看 →</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty">还没有报告。</div>
+    {% endif %}
+  </div>
+  <div style="margin-top:12px"><a class="btn" href="/">← 返回首页</a></div>
+</div>
+<script>
+document.querySelectorAll('td[data-ts]').forEach(td=>{
+  const ts=parseInt(td.dataset.ts); if(!isNaN(ts)) td.textContent=new Date(ts*1000).toLocaleString('zh-CN');
+});
+</script>
+</body>
+</html>

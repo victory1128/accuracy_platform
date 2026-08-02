@@ -1,0 +1,30 @@
+# 精度测试平台依赖
+# Python 3.9+
+
+# HTTP / API
+requests>=2.28.0
+
+# 配置与数据
+pyyaml>=6.0
+
+# 数据集下载 (HuggingFace 完整评测数据)
+datasets>=2.14.0
+huggingface_hub>=0.20.0
+Pillow>=9.0.0          # HLE 等含图片题的数据集解码 image 列
+
+# CLI 美化输出
+rich>=13.0.0
+
+# Web 控制台 / 在线平台
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0
+jinja2>=3.1.0
+python-multipart>=0.0.6
+httpx>=0.24.0          # 平台 API 测试 + 异步 HTTP (TestClient/SSE)
+
+# 数学评测(可选, 用于 sympy 等价判定)
+sympy>=1.11.0
+
+# SWE-bench 代码 Agent 评测 (可选, 仅评测 SWE-bench Verified 时需要)
+# 注: 需 Python 3.10+ 用最新版; Python 3.9 用 2.0.0
+swebench==2.0.0

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大模型精度测试平台</title>
+<style>
+:root { --bg:#f8fafc; --card:#ffffff; --border:#e2e8f0; --fg:#0f172a; --muted:#64748b; --accent:#4f46e5; --good:#16a34a; --warn:#d97706; --bad:#dc2626; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--fg); line-height:1.6; }
+.container { max-width:1080px; margin:0 auto; padding:24px; }
+h1 { font-size:22px; margin:0 0 4px; }
+h2 { font-size:16px; margin:24px 0 12px; border-left:3px solid var(--accent); padding-left:10px; }
+.sub { color:var(--muted); font-size:13px; margin-bottom:20px; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:16px; }
+label { display:block; font-size:13px; color:var(--muted); margin:10px 0 6px; }
+select, input[type=text], input[type=number] { width:100%; background:#f1f5f9; border:1px solid var(--border); color:var(--fg); border-radius:6px; padding:9px 10px; font-size:14px; }
+.btn { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:10px 22px; font-size:14px; cursor:pointer; font-weight:600; }
+.btn:hover { filter:brightness(1.1); }
+.btn.secondary { background:transparent; border:1px solid var(--border); color:var(--fg); }
+.bench-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:8px; max-height:340px; overflow:auto; padding:4px; }
+.bench-item { background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px 12px; cursor:pointer; }
+.bench-item:hover { border-color:var(--accent); }
+.bench-item input { margin-right:8px; }
+.tag { display:inline-block; font-size:10px; padding:1px 6px; border-radius:8px; background:rgba(79,158,255,.15); color:var(--accent); margin-left:4px; }
+.tag.pretrain { background:rgba(74,222,128,.15); color:var(--good); }
+.tag.posttrain { background:rgba(251,191,36,.15); color:var(--warn); }
+.judge { font-size:11px; color:var(--warn); }
+.desc { font-size:11px; color:var(--muted); margin-top:2px; }
+.row { display:flex; gap:12px; }
+.row > div { flex:1; }
+table { width:100%; border-collapse:collapse; }
+th,td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }
+th { color:var(--muted); font-size:12px; }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+.alert { background:rgba(251,191,36,.1); border:1px solid var(--warn); color:var(--warn); padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:12px; }
+.empty { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>大模型精度测试平台</h1>
+  <div class="sub">输入大模型 API, 评测预训练/后训练能力 + 乱码分析 · v0.1</div>
+
+  {% if err %}
+  <div class="alert">⚠ {{ err }}</div>
+  {% endif %}
+  {% if not judge_configured %}
+  <div class="alert">⚠ 未配置裁判模型 (config.yaml 的 judge)。MT-Bench / AlpacaEval / Arena-Hard 等裁判类评测集将无法评分, 其它评测集不受影响。可在下方勾选"我要填裁判模型 API"临时填写。</div>
+  {% endif %}
+
+  <div class="card">
+    <h2 style="margin-top:0">配置评测</h2>
+    <form action="/run" method="post">
+      <div class="row">
+        <div>
+          <label>每评测集采样条数 (留空=全量, 调试建议5-20)</label>
+          <input type="number" name="limit" min="1" placeholder="如 5">
+        </div>
+        <div>
+          <label>API 提供方式</label>
+          <select id="api_mode" onchange="toggleApiMode()">
+            <option value="preset">用 config.yaml 里配的模型 (下拉选择)</option>
+            <option value="custom" selected>直接填写 API (本次临时, 不保存) 🔒</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 模式 A: 用 config 里预设的模型 -->
+      <div id="preset_box" class="row" style="display:none">
+        <div>
+          <label>被测模型</label>
+          <select name="model">
+            {% for m in models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+          </select>
+        </div>
+        <div></div>
+      </div>
+      <!-- use_custom 由 toggleApiMode() 控制这个隐藏字段 (默认直接填写=true) -->
+      <input type="hidden" name="use_custom" value="true" id="use_custom_hidden">
+
+      <!-- 模式 B: 直接填写被测模型 API (默认显示) -->
+      <div id="custom_box">
+        <label>厂商快速预填 (点了再填 key 和模型名)</label>
+        <div style="margin-bottom:8px" id="preset_btns">
+          {% for k, v in vendor_presets.items() %}
+          <button type="button" class="btn secondary" onclick="prefill('{{ k }}', '{{ v.base_url }}', '{{ v.model }}')">{{ k }}</button>
+          {% endfor %}
+        </div>
+        <div class="row">
+          <div>
+            <label>模型显示名 (报告里叫什么, 随便填)</label>
+            <input type="text" name="custom_name" id="c_name" placeholder="如 my-deepseek" value="glm-5.2-fp8">
+          </div>
+          <div>
+            <label>实际模型名 (model 字段)</label>
+            <input type="text" name="custom_model" id="c_model" placeholder="如 deepseek-chat" value="glm-5.2-fp8">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>API Base URL</label>
+            <input type="text" name="custom_base_url" id="c_base" placeholder="https://api.deepseek.com/v1" value="">
+          </div>
+          <div>
+            <label>API Key 🔒 (只用于本次运行, 不写磁盘)</label>
+            <input type="password" name="custom_api_key" id="c_key" placeholder="sk-..." autocomplete="off" value="">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">填写后请从下方评测集里勾选要跑的。key 仅存于本次运行内存, 关闭即失效。</div>
+      </div>
+
+      <!-- 裁判模型 (可选, 勾了才展开) -->
+      <div style="margin-top:14px">
+        <label style="display:inline"><input type="checkbox" id="use_judge_cb" onchange="toggleJudge()" style="width:auto"> 我要填裁判模型 API (MT-Bench/AlpacaEval/Arena-Hard 需要, 不填则用 config.judge 或跳过)</label>
+      </div>
+      <div id="judge_box" style="display:none;margin-top:8px">
+        <input type="hidden" name="use_custom_judge" value="false" id="use_judge_hidden">
+        <div class="row">
+          <div>
+            <label>裁判模型名</label>
+            <input type="text" name="judge_name" placeholder="如 gpt-4o-judge">
+          </div>
+          <div>
+            <label>裁判实际模型名</label>
+            <input type="text" name="judge_model" placeholder="如 gpt-4o">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>裁判 API Base URL</label>
+            <input type="text" name="judge_base_url" placeholder="https://api.openai.com/v1">
+          </div>
+          <div>
+            <label>裁判 API Key 🔒</label>
+            <input type="password" name="judge_api_key" placeholder="sk-..." autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <label style="margin-top:16px">评测集 (勾选要跑的)</label>
+      <div style="margin-bottom:8px">
+        <button type="button" class="btn secondary" onclick="document.querySelectorAll('.bench-item input').forEach(c=>c.checked=true)">全选</button>
+        <button type="button" class="btn secondary" onclick="document.querySelectorAll('.bench-item input').forEach(c=>c.checked=false)">清空</button>
+        <span style="color:var(--muted);font-size:12px;margin-left:8px">共 {{ benchmarks|length }} 个</span>
+      </div>
+      <div class="bench-grid">
+        {% for b in benchmarks %}
+        <label class="bench-item">
+          <input type="checkbox" name="benchmarks" value="{{ b.name }}">
+          <b>{{ b.display_name }}</b>
+          <span class="tag {{ b.stage.value }}">{{ b.stage.value }}</span>
+          {% if b.needs_judge %}<span class="judge">·需裁判</span>{% endif %}
+          <div class="desc">{{ b.description }}</div>
+        </label>
+        {% endfor %}
+      </div>
+
+      <div style="margin-top:14px">
+        <button type="submit" class="btn">开始评测</button>
+        <label style="display:inline; margin-left:16px">
+          <input type="checkbox" name="streaming" style="width:auto" checked> 流式调用 (开启后可统计真实 TTFT首字延迟 / TPOT每token生成时间)
+        </label>
+        <label style="display:inline; margin-left:16px">
+          <input type="checkbox" name="dry_run" style="width:auto"> 演练模式 (不调用真实API, 用模拟数据跑通流程)
+        </label>
+      </div>
+    </form>
+  </div>
+
+<script>
+function toggleApiMode() {
+  const mode = document.getElementById('api_mode').value;
+  const preset = document.getElementById('preset_box');
+  const custom = document.getElementById('custom_box');
+  if (mode === 'custom') {
+    preset.style.display = 'none';
+    custom.style.display = 'block';
+    document.getElementById('use_custom_hidden').value = 'true';
+  } else {
+    preset.style.display = '';
+    custom.style.display = 'none';
+    document.getElementById('use_custom_hidden').value = 'false';
+  }
+}
+function prefill(vendor, baseUrl, model) {
+  document.getElementById('c_base').value = baseUrl;
+  if (model) document.getElementById('c_model').value = model;
+  if (!document.getElementById('c_name').value) document.getElementById('c_name').value = vendor + '-test';
+}
+function toggleJudge() {
+  const on = document.getElementById('use_judge_cb').checked;
+  document.getElementById('judge_box').style.display = on ? 'block' : 'none';
+  document.getElementById('use_judge_hidden').value = on ? 'true' : 'false';
+}
+</script>
+
+  <h2>历史报告</h2>
+  {% if reports %}
+  <table>
+    <thead><tr><th>报告</th><th>大小</th><th>时间</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for r in reports %}
+      <tr>
+        <td>{{ r.name }}</td>
+        <td>{{ (r.size/1024)|round(1) }} KB</td>
+        <td>{{ r.mtime | int }}</td>
+        <td><a href="/report/{{ r.filename }}" target="_blank">查看</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">还没有报告。配置好后点"开始评测"。</div>
+  {% endif %}
+</div>
+<script>
+// 把时间戳转成可读
+document.querySelectorAll('td:nth-child(3)').forEach(td=>{
+  const ts = parseInt(td.textContent);
+  if(!isNaN(ts)) td.textContent = new Date(ts*1000).toLocaleString('zh-CN');
+});
+</script>
+</body>
+</html>

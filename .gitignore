@@ -1,0 +1,73 @@
+# =============================================================
+# .gitignore — 精度测试平台
+# 区分"软件代码"与"运营内容/运行时产物": 只跟踪源码, 排除数据/密钥/缓存。
+# 新环境部署后:
+#   1. cp config.example.yaml config.yaml  填入自己的 API Key
+#   2. python -m venv .venv && .venv/bin/pip install -r requirements.txt
+#   3. python scripts/download_datasets.py  下载评测数据集到 llm_eval/benchmarks/data/
+#   4. .venv/bin/python -m llm_eval.server  启动
+# =============================================================
+
+# ---- 敏感配置 (含真实 API Key / 管理员密码, 切勿入库) ----
+config.yaml
+config.local.yaml
+*.secret
+.env
+.env.*
+
+# ---- 运营数据 (用户跑的评测结果 / 平台数据库, 各环境独立) ----
+results/
+data/platform.db
+data/platform.db-journal
+data/platform.db-wal
+data/platform.db-shm
+llm_eval/server/eval.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ---- 评测数据集 (体积大, 可用 scripts/download_datasets.py 重新下载) ----
+llm_eval/benchmarks/data/
+
+# ---- Python 运行时缓存 ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+
+# ---- Node 依赖 (前端 CSS 构建产物, 可重建, 无 package.json 故不入库) ----
+node_modules/
+
+# ---- 日志 / 临时文件 ----
+*.log
+*.log.*
+server.log
+/private/tmp/llm_eval_server.log
+
+# ---- IDE / 编辑器 ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- macOS 系统文件 ----
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ---- Claude Code 本地配置 ----
+.claude/
+
+# ---- Docker 运行时 ----
+*.pid

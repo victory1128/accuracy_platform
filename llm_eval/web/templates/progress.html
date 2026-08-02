@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>评测进度</title>
+<style>
+:root { --bg:#f8fafc; --card:#ffffff; --border:#e2e8f0; --fg:#0f172a; --muted:#64748b; --accent:#4f46e5; --good:#16a34a; --warn:#d97706; --bad:#dc2626; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:-apple-system,"PingFang SC",sans-serif; background:var(--bg); color:var(--fg); line-height:1.6; }
+.container { max-width:960px; margin:0 auto; padding:24px; }
+h1 { font-size:20px; margin:0 0 4px; }
+.sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
+.bar { height:8px; border-radius:4px; background:var(--border); overflow:hidden; margin:8px 0; }
+.bar > div { height:100%; background:var(--accent); transition:width .3s; }
+.log { background:#f1f5f9; border-radius:8px; padding:12px; font-family:ui-monospace,monospace; font-size:12px; max-height:360px; overflow:auto; white-space:pre-wrap; }
+.log .err { color:var(--bad); } .log .ok { color:var(--good); }
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--muted); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:middle; margin-right:6px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.badge { font-size:11px; padding:2px 8px; border-radius:6px; }
+.badge.run { background:rgba(79,158,255,.15); color:var(--accent); }
+.badge.done { background:rgba(74,222,128,.15); color:var(--good); }
+.badge.err { background:rgba(248,113,113,.15); color:var(--bad); }
+table { width:100%; border-collapse:collapse; }
+th,td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); font-size:13px; }
+a.btn { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:9px 18px; font-size:14px; text-decoration:none; display:inline-block; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1 id="title">
+    {% if state.running %}<span class="spinner"></span>评测进行中{% else %}评测结束{% endif %}
+  </h1>
+  <div class="sub" id="status">
+    模型: {{ state.current_model }} · {{ state.started_at }}
+    {% if state.finished_at %} → {{ state.finished_at }}{% endif %}
+  </div>
+
+  <div class="card">
+    <div>进度: <span id="done">{{ state.done_benchmarks|length }}</span> / <span id="total">{{ state.total_benchmarks or (state.current_benchmarks|length + state.done_benchmarks|length) }}</span>
+    <span id="badge">{% if state.running %}<span class="badge run">运行中</span>{% elif state.error %}<span class="badge err">出错</span>{% else %}<span class="badge done">完成</span>{% endif %}</span>
+    </div>
+    <div class="bar"><div id="bar" style="width:{{ (state.done_benchmarks|length / (state.total_benchmarks or 1) * 100) if (state.total_benchmarks or (state.current_benchmarks|length + state.done_benchmarks|length)) > 0 else 0 }}%"></div></div>
+    <div id="pending" style="font-size:12px;color:var(--muted)">{% if state.current_benchmarks %}待跑: {{ state.current_benchmarks|join(', ') }}{% endif %}</div>
+  </div>
+
+  {% if state.error %}
+  <div class="card" style="border-color:var(--bad)"><b style="color:var(--bad)">错误:</b> {{ state.error }}</div>
+  {% endif %}
+
+  <div class="card">
+    <b>日志</b>
+    <div class="log" id="log">{% for l in state.log %}{{ l }}
+{% endfor %}</div>
+  </div>
+
+  <div id="result_box">
+  {% if state.results %}
+  <div class="card">
+    <b>结果摘要</b>
+    <table>
+      <thead><tr><th>评测集</th><th>阶段</th><th>分数</th><th>样本数</th></tr></thead>
+      <tbody>
+        {% for s in state.results.summary %}
+        <tr><td>{{ s.benchmark }}</td><td>{{ s.stage }}</td><td>{{ s.score }}</td><td>{{ s.num_samples }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div style="margin-top:12px">
+      <a class="btn" href="/report/{{ state.results.html }}" target="_blank">查看完整报告 (HTML)</a>
+      <a class="btn" href="/" style="background:transparent;border:1px solid var(--border);color:var(--fg)">返回</a>
+    </div>
+  </div>
+  {% endif %}
+  </div>
+
+  <div style="margin-top:12px"><a class="btn" href="/" style="background:transparent;border:1px solid var(--border);color:var(--fg)">← 返回首页</a></div>
+</div>
+<script>
+// 记录是否已渲染过结果, 避免重复 DOM 操作
+let rendered = false;
+function renderResults(s) {
+  if (rendered) return;
+  if (!s.results && !s.error) return;
+  rendered = true;
+  const box = document.getElementById('result_box');
+  let html = '';
+  if (s.error) {
+    html = '<div class="card" style="border-color:var(--bad)"><b style="color:var(--bad)">错误:</b> ' + s.error + '</div>';
+  } else if (s.results) {
+    const rows = (s.results.summary||[]).map(r =>
+      '<tr><td>'+r.benchmark+'</td><td>'+r.stage+'</td><td>'+r.score+'</td><td>'+r.num_samples+'</td></tr>'
+    ).join('');
+    html = '<div class="card"><b>结果摘要</b><table><thead><tr><th>评测集</th><th>阶段</th><th>分数</th><th>样本数</th></tr></thead><tbody>'+rows+'</tbody></table>'
+      + '<div style="margin-top:12px"><a class="btn" href="/report/'+s.results.html+'" target="_blank">查看完整报告 (HTML)</a>'
+      + ' <a class="btn" href="/" style="background:transparent;border:1px solid var(--border);color:var(--fg)">返回</a></div></div>';
+  }
+  box.innerHTML = html;
+  document.getElementById('title').innerHTML = '评测结束';
+  document.getElementById('badge').innerHTML = s.error ? '<span class="badge err">出错</span>' : '<span class="badge done">完成</span>';
+}
+async function poll() {
+  try {
+    const r = await fetch('/progress.json');
+    const s = await r.json();
+    const done = (s.done_benchmarks||[]).length;
+    const total = s.total_benchmarks || (done + (s.current_benchmarks||[]).length);
+    document.getElementById('done').textContent = done;
+    document.getElementById('total').textContent = total;
+    document.getElementById('bar').style.width = total ? (done/total*100)+'%' : '0%';
+    const pendEl = document.getElementById('pending');
+    if (s.current_benchmarks && s.current_benchmarks.length) {
+      pendEl.textContent = '待跑: ' + s.current_benchmarks.join(', ');
+    } else {
+      pendEl.textContent = '';
+    }
+    const logEl = document.getElementById('log');
+    logEl.textContent = (s.log||[]).join('\n');
+    logEl.scrollTop = logEl.scrollHeight;
+    if (s.running) {
+      document.getElementById('title').innerHTML = '<span class="spinner"></span>评测进行中';
+      setTimeout(poll, 1500);
+    } else {
+      // 完成: 原地渲染结果区 (不再 reload, 避免丢失/卡住)
+      renderResults(s);
+    }
+  } catch(e) { setTimeout(poll, 3000); }
+}
+// 只要还在跑, 或还没渲染出结果, 就持续轮询
+if (!rendered) { poll(); }
+</script>
+</body>
+</html>
