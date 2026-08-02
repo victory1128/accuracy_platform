@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import auth, db, taskman
 from .server_config import ServerConfig, load_server_config
+from .. import __version__
 
 HERE = os.path.dirname(__file__)
 STATIC_DIR = os.path.join(HERE, "static")
@@ -82,7 +83,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         timeout=scfg.code_exec_timeout,
     )
 
-    app = FastAPI(title="大模型精度测试平台", version="1.0.0")
+    app = FastAPI(title="大模型精度测试平台", version=__version__)
 
     # 3. GZip 压缩: 大响应 (如 /requests 明细 JSON, 报告 HTML) 压缩后传输快数倍。
     #    minimum_size=1024: 仅压缩 >1KB 的响应 (小响应不压缩, 省 CPU)。
@@ -132,7 +133,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     def server_info():
         """公开的服务端信息 (前端判断沙箱/特性用)。"""
         return {
-            "version": "1.0.0",
+            "version": __version__,
             "code_exec_enabled": scfg.code_exec_enabled,
             "code_exec_sandbox": scfg.code_exec_sandbox,
             "benchmarks_count": len(__import__("llm_eval.benchmarks", fromlist=["list_names"]).list_names()),
