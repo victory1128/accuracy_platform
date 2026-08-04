@@ -71,3 +71,12 @@ server.log
 
 # ---- Docker 运行时 ----
 *.pid
+
+# ---- 沙箱镜像构建依赖 (大文件, 不入 git) ----
+# torch CPU wheel (~155MB) 预下载到 sandbox_wheels/ 供 Dockerfile COPY 安装。
+# 体积大且可重新下载, 不入版本库。重建镜像前需自行下载到该目录 (见 Dockerfile.code-sandbox 注释)。
+sandbox_wheels/
+
+# ---- 所有 SQLite 数据库 (运营/运行时数据, 各环境独立) ----
+# 兜底: 覆盖任意路径下的 *.db (含误建的 llm_eval/server/llm_eval.db 等)
+*.db
