@@ -325,7 +325,7 @@ function renderNewTask() {
   sessionStorage.removeItem('clone');
   const mc = (clone && clone.model_config) || { name: '', base_url: '', api_key: '', model: '', temperature: 0.0, max_tokens: 2048, extra: {} };
   const jc = (clone && clone.judge_config) || { name: '', base_url: '', api_key: '', model: '', max_tokens: 256 };
-  const rp = clone ? clone : { benchmarks: [], limit: '', concurrency: '', streaming: false, debug: false, mode: 'real', name: '' };
+  const rp = clone ? clone : { benchmarks: [], limit: '', concurrency: '', streaming: false, debug: false, mode: 'real', name: '', timeout: '' };
   const checked = new Set(rp.benchmarks || []);
   const benches = S.benchmarks.map(b => `<label class="bench-item">
     <input type="checkbox" value="${b.name}" ${checked.has(b.name) ? 'checked' : ''}>
@@ -381,6 +381,7 @@ function renderNewTask() {
       <div class="row">
         <div><label>每集采样条数 (留空=全量, 即跑各评测集卡片显示的总条数)</label><input type="number" id="f_limit" value="${rp.limit ?? ''}" placeholder="如 5, 留空=全量"></div>
         <div><label>并发数</label><input type="number" id="f_conc" value="${rp.concurrency ?? ''}" placeholder="默认 4"></div>
+        <div><label>单题超时 (秒, 留空=1200即20分钟)</label><input type="number" id="f_timeout" value="${rp.timeout ?? ''}" placeholder="如 1200, 留空=默认1200"></div>
       </div>
       <div class="row" style="margin-top:6px">
         <label style="display:inline"><input type="checkbox" id="f_stream" ${rp.streaming ? 'checked' : ''} style="width:auto"> 流式调用 (统计真实 TTFT/TPOT)</label>
@@ -425,6 +426,7 @@ async function submitTask() {
     concurrency: document.getElementById('f_conc').value ? parseInt(document.getElementById('f_conc').value) : null,
     streaming: document.getElementById('f_stream').checked,
     debug: document.getElementById('f_debug').checked,
+    timeout: document.getElementById('f_timeout').value ? parseInt(document.getElementById('f_timeout').value) : null,
   };
   try {
     const t = await api.createTask(body);

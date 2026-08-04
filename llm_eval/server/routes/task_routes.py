@@ -91,6 +91,8 @@ def create_task(body: TaskCreateIn, user: dict = Depends(auth.current_user)):
         # None=用评测集自带值(如 IFEval 8192/代码 4096)。
         "max_tokens": body.model_cfg.max_tokens if body.model_cfg.max_tokens else None,
         "temperature": body.model_cfg.temperature if body.model_cfg.temperature is not None else None,
+        # 单请求硬超时(秒): None=用平台默认 1200。跟随到 LLMClient._hard_timeout。
+        "timeout": body.timeout,
     }
     name = body.name or f"{model.name} · {','.join(body.benchmarks[:3])}"
     task_id = db.create_task(
@@ -175,6 +177,7 @@ def clone_task(task_id: int, user: dict = Depends(auth.current_user)):
         concurrency=rp.get("concurrency"),
         streaming=rp.get("streaming", False),
         debug=rp.get("debug", False),
+        timeout=rp.get("timeout"),
     )
 
 

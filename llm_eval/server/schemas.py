@@ -79,6 +79,9 @@ class TaskCreateIn(BaseModel):
     concurrency: Optional[int] = None
     streaming: bool = False
     debug: bool = False  # 开发模式: 详细日志/单步追踪
+    # 单请求硬超时(秒): 总耗时上限, 超过即放弃该题(防慢吐/stall 占满并发槽)。
+    # None=用平台默认 1200(20min)。端点易 stall 时可调大给恢复时间, 或调小快速释放。
+    timeout: Optional[int] = None
 
 
 class TaskOut(BaseModel):
@@ -124,6 +127,7 @@ class CloneOut(BaseModel):
     concurrency: Optional[int] = None
     streaming: bool = False
     debug: bool = False
+    timeout: Optional[int] = None
 
 
 class LogLine(BaseModel):
