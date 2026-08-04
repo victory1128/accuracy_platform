@@ -109,7 +109,7 @@ class Benchmark:
     def _eval_gen(self, sample: Sample, response: str) -> SampleResult:
         pred = extract_number(response)
         gold = sample.gold or ""
-        correct = numbers_equal(pred, gold) if pred else False
+        correct = _math_answer_equal(pred, gold) if pred else False
         return SampleResult(
             sample_id=sample.sample_id,
             response=response,
@@ -226,3 +226,32 @@ def _ensure_check_called(test_code: str, entry_point: str) -> str:
         return test_code
     ep = entry_point or "candidate"
     return test_code + f"\n\ncheck({ep})\n"
+
+
+def _math_answer_equal(pred: str, gold: str) -> bool:
+    """数学题答案匹配 (GSM8K / MATH-500 / AIME)。
+
+    在 numbers_equal 基础上兜底两类抽取/口径问题:
+    1. LaTeX 百分号: pred='60\\%' / '\\92' (思维链模型常带 LaTeX 转义),
+       numbers_equal 因含 '\\' 判非纯数值直接字符串比较 -> 不等。清理 '\\' 后重比。
+    2. 百分号口径: pred='60%' gold='60'。GSM8K 里答案就是数字 60, 百分号只是表达方式,
+       应判等; 但 numbers_equal 把 '60%' 换算成 0.6 与 60 比 -> 不等。
+       故当 gold 是纯数字、pred 是 'N%' 时, 去 '%' 后比较 N==gold。
+    """
+    if not pred or not gold:
+        return False
+    # 主路径
+    if numbers_equal(pred, gold):
+        return True
+    import re as _re
+    # 兜底1: 清理 LaTeX 转义反斜杠 (\\% -> %, \\92 -> 92) 后重比
+    cleaned = pred.replace("\\", "").strip()
+    if cleaned != pred and numbers_equal(cleaned, gold):
+        return True
+    # 兜底2: gold 是纯数字、pred 含 % -> 去掉 % 比较数值 (60% == 60)
+    g = gold.strip()
+    p_no_pct = cleaned.rstrip("%").strip()
+    if "%" in cleaned and p_no_pct and p_no_pct != cleaned:
+        if numbers_equal(p_no_pct, g):
+            return True
+    return False

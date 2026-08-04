@@ -8,7 +8,24 @@ from __future__ import annotations
 
 import re
 import string
+import unicodedata
 from typing import List, Optional
+
+# Unicode 标点/符号 → ASCII 等价物 (用于 normalize_answer)。
+# string.punctuation 只含 ASCII, 不覆盖 en-dash/em-dash/curly quote 等;
+# gold 常含 '–' (en-dash) 而 pred 用 '-' (hyphen), 不归一会被误判不等。
+_PUNCT_NORMALIZE = {
+    0x2013: "-",   # en-dash
+    0x2014: "-",   # em-dash
+    0x2018: "'",   # left single quote
+    0x2019: "'",   # right single quote
+    0x201C: '"',   # left double quote
+    0x201D: '"',   # right double quote
+    0x00A0: " ",   # no-break space
+    0x2010: "-",   # hyphen
+    0x2011: "-",   # non-breaking hyphen
+    0x2012: "-",   # figure dash
+}
 
 # 匹配 \boxed{...} (含嵌套大括号的简单处理)
 BOXED_RE = re.compile(r"\\boxed\{([^{}]*)\}")
@@ -43,10 +60,25 @@ CHOICE_RE_LIST = [
 
 
 def normalize_answer(ans: str) -> str:
-    """通用答案归一化: 去空白/标点/大小写, 用于精确匹配"""
+    """通用答案归一化: 去空白/标点/大小写, 用于精确匹配。
+
+    在去 ASCII 标点 (string.punctuation) 基础上, 额外处理两类 Unicode 差异,
+    否则 gold/pred 因字符编码不同被误判不等:
+    1. 重音字母折叠为基本字母 (NFKD 分解后丢弃组合标记): café→cafe, naïve→naive,
+       Zürich→zurich。SimpleQA 等 gold 含 é/ä/è 等, 模型常输出无重音版本。
+    2. Unicode 破折号/引号归一化为 ASCII: en-dash – (U+2013)/em-dash — (U+2014)
+       → hyphen -, curly quote ' (U+2019)→', 同样被后续标点清理。
+       gold 'Urbana–Champaign' (en-dash) vs pred 'Urbana-Champaign' (hyphen)
+       原先 en-dash 不在 string.punctuation 里被保留 → 不等。
+    """
     if ans is None:
         return ""
     ans = str(ans).strip().lower()
+    # 重音折叠: NFKD 分解, 丢弃组合标记 (Combining Diacritical Marks U+0300–U+036F)
+    ans = unicodedata.normalize("NFKD", ans)
+    ans = "".join(ch for ch in ans if not unicodedata.combining(ch))
+    # Unicode 破折号/引号 → ASCII (随后由标点清理统一处理)
+    ans = ans.translate(_PUNCT_NORMALIZE)
     # 去掉冠词与常见标点
     ans = re.sub(r"\b(a|an|the)\b", " ", ans)
     # 去除所有标点

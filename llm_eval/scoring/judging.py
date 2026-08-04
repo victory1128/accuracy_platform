@@ -66,16 +66,32 @@ def judge_single(
     reference: str = "",
     *,
     temperature: float = 0.0,
-    max_tokens: int = 256,
+    max_tokens: int = 4096,
 ) -> Tuple[Optional[float], str]:
-    """裁判对单条回答打分, 返回 (1~10的分数, 理由)"""
+    """裁判对单条回答打分, 返回 (1~10的分数, 理由)。
+
+    思维链裁判模型 (如 glm-5.2 自裁判) 会先在 reasoning_content 思考再在
+    content 输出 JSON, max_tokens 必须给够 (4096) 让思考走完, 否则
+    finish_reason=length 导致 content 为空。content 空时从 reasoning_content
+    末尾兜底抽取 (裁判常在思考末尾给出结论)。
+    """
     prompt = SINGLE_JUDGE_PROMPT.format(
         question=question, reference=reference or "(无)", answer=answer
     )
-    text, _ = judge_client.chat(
+    text, usage = judge_client.chat(
         prompt, temperature=temperature, max_tokens=max_tokens
     )
-    return _parse_judge_json(text)
+    score, reason = _parse_judge_json(text)
+    if score is not None:
+        return score, reason
+    # content 空/无 JSON (思维链被 length 截断) -> 从 reasoning_content 末尾兜底
+    if isinstance(usage, dict):
+        rc = (usage.get("reasoning_content") or "").strip()
+        if rc:
+            score, reason = _parse_judge_json(rc[-600:])
+            if score is not None:
+                return score, f"(reasoning兜底) {reason}"
+    return None, reason
 
 
 def judge_pair(
@@ -85,11 +101,14 @@ def judge_pair(
     answer_b: str,
     *,
     temperature: float = 0.0,
-    max_tokens: int = 128,
+    max_tokens: int = 4096,
 ) -> str:
     """裁判对两个回答做配对比较, 返回 'A' / 'B' / 'tie'
 
     用于 Arena-Hard 风格。这里 A=被测模型, B=参考基线。
+
+    思维链裁判模型 (如 glm-5.2) 会先在 reasoning_content 思考再在 content
+    输出 A/B/tie, max_tokens 给 4096; content 空时从 reasoning 末尾兜底抽字母。
     """
     prompt = f"""你是一个严格的评审员, 比较两个助手对同一问题的回答。
 
@@ -104,12 +123,31 @@ def judge_pair(
 
 请判断哪个回答更好。只输出一个词: A / B / tie
 """
-    text, _ = judge_client.chat(
+    text, usage = judge_client.chat(
         prompt, temperature=temperature, max_tokens=max_tokens
     )
-    t = text.strip().lower()
-    if t.startswith("a"):
-        return "A"
-    if t.startswith("b"):
-        return "B"
+
+    def _decide(t: str) -> str:
+        t = t.strip().lower()
+        if t.startswith("a"):
+            return "A"
+        if t.startswith("b"):
+            return "B"
+        return ""
+
+    verdict = _decide(text)
+    if verdict:
+        return verdict
+    # content 空 -> 从 reasoning_content 末尾兜底 (裁判常以 "因此选 A" 收尾)
+    if isinstance(usage, dict):
+        rc = (usage.get("reasoning_content") or "").strip()
+        if rc:
+            # 在末尾找独立的 A / B / tie, 或 "选A/选B"
+            tail = rc[-200:]
+            m = re.search(r"(?:选|选择|因此|所以|最终|结论)\s*[：:]?\s*\(*([ABab])\)*", tail)
+            if m:
+                return m.group(1).upper()
+            m = re.search(r"\b([ABab])\b", tail)
+            if m:
+                return m.group(1).upper()
     return "tie"

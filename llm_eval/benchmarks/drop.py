@@ -104,11 +104,37 @@ def _drop_extract_answer(response: str) -> str:
 
 
 def _drop_match(pred: str, gold: str) -> bool:
-    """DROP 答案匹配: 归一化精确匹配 + 数值相等容忍。"""
+    """DROP 答案匹配: 归一化精确匹配 + 数值相等容忍 + 单位剥离/包含兜底。
+
+    DROP 答案常带单位或修饰词 ('24-yard'/'9 yards'/'Dallas Cowboys') 而 gold 是
+    纯 span ('24'/'9'/'Dallas'), 旧实现只做精确匹配+numbers_equal 会把这些判错。
+    兜底: 数字答案剥离单位后数值比较; 纯文本答案做包含关系。
+    注意: 数字 gold (如 '2') 绝不走文本包含, 否则 '2' in '20 yards' 会误判。
+    """
     if not pred or not gold:
         return False
     if normalize_answer(pred) == normalize_answer(gold):
         return True
-    # 数值答案: "23" vs "23.0" / "twenty three"
     from ..scoring.extract import numbers_equal
-    return numbers_equal(pred, gold)
+
+    g_stripped = gold.strip()
+    # 判断 gold 是否为纯数字答案 (DROP 一半 gold 是 '2'/'3' 这类短数字)
+    g_is_number = bool(re.fullmatch(r"[\d,]+\.?\d*", g_stripped))
+
+    # 数值答案: pred/gold 都含数字 -> 抽首个数字组比较 (剥离 -yard/yards/等单位)
+    p_nums = re.findall(r"[\d,]+\.?\d*", pred)
+    if g_is_number and p_nums:
+        # gold 是纯数字: 用 gold 整体与 pred 首个数字组比较 (不拆 gold, 防止 '12' 拆出 '1')
+        if numbers_equal(p_nums[0].replace(",", ""), g_stripped.replace(",", "")):
+            return True
+        return False  # 数字 gold 数值不等就直接错, 不走文本包含 (防 '2' in '20' 误判)
+    if p_nums and numbers_equal(pred, gold):
+        return True
+
+    # 纯文本答案: 包含关系 (gold 是 pred 的子串, 如 'Dallas' in 'Dallas Cowboys')
+    # 仅对非数字 gold, 且 gold 足够长 (>=4) 避免短词误包含
+    p = normalize_answer(pred)
+    g = normalize_answer(gold)
+    if not g_is_number and len(g) >= 4 and g in p:
+        return True
+    return False
