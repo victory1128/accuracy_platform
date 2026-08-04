@@ -48,7 +48,7 @@ class Runner:
         sample_result_callback: Optional[callable] = None,
         cancel_event: Optional[Any] = None,
     ):
-        self.client = LLMClient(model_config, timeout=timeout, max_retries=max_retries)
+        self.client = LLMClient(model_config, timeout=timeout, max_retries=max_retries, concurrency=concurrency)
         self.judge_client = (
             LLMClient(judge_config, timeout=timeout, max_retries=max_retries)
             if judge_config
@@ -303,8 +303,54 @@ class Runner:
                                  on_progress=_on_sample_progress, should_stop=should_stop,
                                  on_cancel=on_cancel)
 
-        # 过滤掉取消/异常的样本 (run_concurrent 对异常返回 dict, 非 SampleResult)
-        results = [r for r in results if hasattr(r, "analysis")]
+        # 失败/取消的样本兜底为"错误占位" SampleResult, 不再丢弃。
+        # 旧实现 `[r for r in results if hasattr(r,"analysis")]` 会过滤掉所有返回 dict 的
+        # 超时/异常样本, 导致: ① 分数偏(分子分母都缩水, accuracy=对/幸存数 而非 对/总数);
+        # ② 报告里看不到失败样本, 无法追溯失败原因。现在统一转成 error 占位:
+        # correct=False、response="", 保留 sample_id/prompt/gold 供定位, 计入分母。
+        # 注意: client 层已修 (网络异常转 LLMClientError -> worker 接住成 SampleResult),
+        # 此处是对 worker 仍可能抛非 LLMClientError 的防御兜底。
+        fixed_results = []
+        for sample, r in zip(samples, results):
+            if isinstance(r, SampleResult):
+                fixed_results.append(r)
+                continue
+            # dict: run_concurrent 对 worker 抛出的异常 catch 成 {"_error":.., "_cancelled":..}
+            err = ""
+            cancelled = False
+            if isinstance(r, dict):
+                err = str(r.get("_error") or "未知错误")
+                cancelled = bool(r.get("_cancelled"))
+            else:
+                err = str(r)
+            prompt = bench.build_prompt(sample)
+            system = bench.system_prompt()
+            fixed_results.append(SampleResult(
+                sample_id=sample.sample_id,
+                response="",
+                error=err,
+                correct=False,
+                benchmark=meta.name,
+                prompt=prompt,
+                system_prompt=system,
+                question=sample.question,
+                gold=sample.gold,
+                reference=(sample.meta or {}).get("reference") or sample.gold,
+                gen_params={k: v for k, v in params.items()},
+                streaming=self.streaming,
+                request_hash=_make_request_hash(
+                    meta.name, sample.sample_id, prompt, "", self.model_config.name
+                ),
+                prompt_chars=len(prompt),
+                response_chars=0,
+                analysis=analyze_gibberish(
+                    "", expected_lang=("zh" if _is_chinese_bench(meta, sample) else "en")
+                ),
+            ))
+            if cancelled:
+                fixed_results[-1].analysis = fixed_results[-1].analysis or {}
+                fixed_results[-1].analysis.setdefault("abnormal_notes", []).append("已取消")
+        results = fixed_results
 
         # 聚合
         aggregate = bench.aggregate(results)

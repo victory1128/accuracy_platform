@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, wait, TimeoutEr
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from .models import ModelConfig
 
@@ -29,7 +30,7 @@ class LLMClient:
         text, usage = client.chat("你好")
     """
 
-    def __init__(self, config: ModelConfig, timeout: int = 1200, max_retries: int = 3):
+    def __init__(self, config: ModelConfig, timeout: int = 1200, max_retries: int = 3, concurrency: int = 4):
         self.config = config
         # timeout 是 requests 的"两次数据之间"超时, 对慢吐型响应(思维链模型
         # 持续缓慢吐 token, 每次间隔 < timeout)无法兜底总耗时, 单题可挂几十分钟。
@@ -37,9 +38,14 @@ class LLMClient:
         self.timeout = timeout
         self.max_retries = max_retries
         # 单次请求硬超时(秒): 兜底慢吐/挂起, 避免占满并发槽拖垮整个任务。
-        # mmlu_pro 单题正常最多 ~80s, AIME 思维链题 ~600s; 给 600s(10min)足够覆盖
-        # 正常长题, 卡住时 10min 超时释放而非永久挂起。可被 config 覆盖。
-        self._hard_timeout = 600
+        # 同时作为"请求总耗时上限"——requests 的 read timeout 只管两次数据之间的
+        # 间隔, 对持续慢吐的响应(每次间隔 < read timeout)无法兜底总耗时, 单题可挂
+        # 几十分钟。用 _hard_timeout 作总预算, 超过即放弃(daemon 线程跑 post, 主线程
+        # fut.result(timeout=) 强弃)。
+        # 默认 1200s(20min, 与 config.yaml run.timeout 一致): 覆盖 AIME 思维链长题
+        # (~600s)。用户可在提交表单按端点情况调大(端点 stall 时给更多恢复时间)或调小
+        # (stall 期端点 0 字节, 超时快释放换下一题)。跟随 Runner 传入的 timeout。
+        self._hard_timeout = timeout
         # 可选的取消信号 (threading.Event): 由 runner 注入 taskman 的 cancel_event。
         # 流式/非流式请求在 socket 读循环里检查它, 被 set 时立即关闭底层连接并抛
         # LLMClientError("已取消"), 让点"取消任务"能秒级中断在途请求, 而非等硬超时。
@@ -57,6 +63,23 @@ class LLMClient:
         self._session = requests.Session()
         self._session.trust_env = False
         self._session.proxies = {"http": None, "https": None}
+        # 连接池调优: requests 默认 urllib3 PoolManager 每 host maxsize=10, 而评测
+        # 并发常达 32。并发 > 池大小时, urllib3 默认 pool_block=False 会为超出部分狂建
+        # 临时连接(不进池, 用完即弃), 导致瞬时连接数飙升——在 BBH 等 GEN 类长思维链
+        # 大集(6511 条 × 长连接)上, 持续打满端点连接数, 触发端点主动 RST/断连
+        # (ConnectionResetError/RemoteDisconnected, 任务 #65 BBH 1328 条)。
+        # 改: 池大小跟随用户并发数 (取 max(concurrency,32) 再 ×1.5 留余量), pool_block=True
+        # 让超出请求排队复用 keep-alive 连接, 而非狂建临时连接。降低端点看到的并发连接数,
+        # 缓解 RST。池跟随并发的好处: 用户设任意并发(如 100)连接池都不会成瓶颈——固定值
+        # (如写死 64) 在并发>池时会变瓶颈(排队而非扩池)。judge_client 并发低, 用默认即可。
+        _pool = max(int(concurrency * 1.5), 32)
+        _adapter = HTTPAdapter(
+            pool_connections=_pool,  # 连接池缓存数 (urllib3 连接数)
+            pool_maxsize=_pool,      # 池最大连接数, ≥ 评测并发, 跟随用户设置
+            pool_block=True,         # 池满时排队等待, 不新建临时连接
+        )
+        self._session.mount("http://", _adapter)
+        self._session.mount("https://", _adapter)
         base = config.base_url.rstrip("/")
         # 兼容用户填 /v1 或不填: 若 URL 没有任何路径段则补 /v1
         # (DeepSeek/Kimi/Qwen 等官方文档均以 /v1 开头)
@@ -154,6 +177,20 @@ class LLMClient:
                     pass
                 ex.shutdown(wait=False)
                 raise LLMClientError(last_err)
+            except Exception as e:  # noqa: BLE001
+                # _do_post 在 daemon 线程内抛出的网络异常 (ReadTimeout/ConnectionError
+                # /ChunkedEncodingError 等) 会原样冒泡到这里。若不转成 LLMClientError,
+                # 上层 worker 的 `except LLMClientError` 接不住 -> worker 抛出 ->
+                # run_concurrent 把它 catch 成 {"_error":..} dict -> runner 过滤掉 ->
+                # 样本蒸发、分数偏(分子分母都缩水)且报告里看不到失败样本。
+                # 这里统一转成 LLMClientError, 让 worker 能正常构造错误 SampleResult。
+                try:
+                    if "resp" in holder:
+                        holder["resp"].close()
+                except Exception:  # noqa: BLE001
+                    pass
+                ex.shutdown(wait=False)
+                raise LLMClientError(f"network: {e}") from e
             ex.shutdown(wait=False)
             latency = (time.time() - t0) * 1000
             try:
@@ -409,6 +446,19 @@ class LLMClient:
                     pass
                 ex.shutdown(wait=False)
                 raise LLMClientError(last_err)
+            except Exception as e:  # noqa: BLE001
+                # _do_stream 在 daemon 线程内 (iter_lines 消费 SSE 时) 抛出的网络异常
+                # (ReadTimeout/ConnectionError/ChunkedEncodingError/ProtocolError 等)
+                # 会原样冒泡到这里。不转成 LLMClientError 则上层 worker 接不住,
+                # 样本会蒸发 (见 chat() 同位置注释)。流式尤其常见: 端点 stall 时
+                # iter_lines 卡在 socket recv, read timeout 触发抛 ReadTimeout。
+                try:
+                    if "resp" in holder:
+                        holder["resp"].close()
+                except Exception:  # noqa: BLE001
+                    pass
+                ex.shutdown(wait=False)
+                raise LLMClientError(f"network: {e}") from e
             ex.shutdown(wait=False)
             # 取消时也关闭连接 (worker 可能已返回 cancelled 标记, 或主线程检测到)
             if cancel is not None and cancel.is_set():

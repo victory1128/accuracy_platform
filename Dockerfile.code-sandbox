@@ -9,14 +9,17 @@
 #   - BigCodeBench: pandas / numpy / matplotlib / scikit-learn / scipy / seaborn /
 #     requests / faker / nltk / Pillow / beautifulsoup4 / python-docx / openpyxl /
 #     opencv-python-headless / django / cryptography / python-dateutil / pytz
+#   - DS-1000: 除上述外, 还含 PyTorch (68题) / Tensorflow (45题) 子集,
+#     题目官方参考实现即用 torch/tensorflow, 模型按题目语境 import 是正确的,
+#     必须预装否则环境误伤 (ModuleNotFoundError 误判 fail); 另含 xgboost/pyyaml。
 #
 # 构建:  docker build -f Dockerfile.code-sandbox -t llm-eval-sandbox:latest .
 # 使用:  在 config.yaml 设
 #           server.code_exec.sandbox: "docker"
 #           server.code_exec.image: "llm-eval-sandbox:latest"
 #
-# 镜像体积较大 (~1.5GB) 因含完整数据科学栈; 如只跑 HumanEval/MBPP/LiveCodeBench,
-# 可改用官方 python:3.11-slim (仅标准库) 以节省体积。
+# 镜像体积较大 (~5GB) 因含 torch/tensorflow 完整数据科学栈;
+# 如只跑 HumanEval/MBPP/LiveCodeBench (仅需标准库), 可改用官方 python:3.11-slim 节省体积。
 #
 # 国内网络: 已默认用清华 apt 源 + 阿里云 pip 源加速构建 (见下方 sed/pip -i)。
 # 海外环境: 删除那两处镜像配置即可用官方源。
@@ -50,6 +53,28 @@ RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
         "django>=4.2" "cryptography>=41.0" \
         "python-dateutil>=2.8" "pytz>=2023.3" \
         "sympy>=1.11"
+
+# DS-1000 PyTorch/Tensorflow 子集所需 (113 条题目的官方实现即用这两个框架)。
+# 单独一层: 体积大, 改动少时可命中缓存。CPU 版即可 (沙箱 --network none 禁网无 GPU)。
+# 关键: torch 必须装 CPU-only 版, 不能用默认 pip 源——默认源拉完整 CUDA 版, 带
+# cudnn/cublas/nccl 等 ~3GB 无用 GPU 依赖 (沙箱无 GPU)。但 PyTorch 官方 cpu 源在境外,
+# 构建时 pip 下载小依赖 (networkx/fsspec 等) 常超时失败。故: torch CPU wheel 预下载到
+# sandbox_wheels/ 本地 COPY 安装 (绕过 pip 下载不稳定), torch 的纯 Python 依赖
+# (networkx/jinja2/fsspec/filelock/markupsafe) 走阿里云源 (国内稳定)。
+# 注意: wheel 文件名必须保留原始规范名 (含版本/cp311/平台标签), pip 靠文件名解析 wheel 元数据,
+# 改名 (如 torch.whl) 会被拒 "is not a valid wheel filename"。安装后删除减小镜像层体积。
+#
+# tensorflow: 本机构建架构是 aarch64 (Apple Silicon)。tensorflow-cpu 变体**只发布
+# linux_x86_64 wheel**, aarch64 上无任何匹配 (pip 报 No matching distribution found)。
+# 故 aarch64 上用主包 tensorflow (2.21.0), 无 GPU 环境装出来天然 CPU-only (不带 CUDA)。
+# x86_64 服务器重建可改回 tensorflow-cpu 省 CUDA 体积。
+COPY sandbox_wheels/torch-2.13.0+cpu-cp311-cp311-manylinux_2_28_aarch64.whl /tmp/
+RUN pip install --no-cache-dir /tmp/torch-2.13.0+cpu-cp311-cp311-manylinux_2_28_aarch64.whl \
+        -i https://mirrors.aliyun.com/pypi/simple/ \
+    && rm /tmp/torch-2.13.0+cpu-cp311-cp311-manylinux_2_28_aarch64.whl \
+    && pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ \
+        "tensorflow>=2.15" \
+        "xgboost>=2.0" "pyyaml>=6.0"
 
 # 容器以 stdin 接收代码 (平台用 `python -` 执行); 默认工作目录 /tmp (平台挂为 tmpfs 可写)
 WORKDIR /tmp

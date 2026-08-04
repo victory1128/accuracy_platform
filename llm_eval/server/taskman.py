@@ -655,6 +655,8 @@ def _run_one(task_id: int):
         from ..cli import _dry_run
         results = []
         summary = []   # 增量维护已完成集的评分摘要 (每集跑完即落 DB, 刷新页面可见)
+        # 报告路径变量预声明: 在 try 内 698+ 行才赋值, 预声明保证异常收尾分支安全引用
+        _json_path = _html_path = _rel_stem = _stem = None
         started = datetime.now()
         try:
             if mode == "dry_run":
@@ -666,7 +668,7 @@ def _run_one(task_id: int):
                     _set_bench_done(task_id, r.benchmark)
             else:
                 # real / quick: 用 Runner 真跑 (quick 只是 limit 小)
-                run_params = {"concurrency": concurrency or 4, "max_retries": 3, "timeout": 1200, "seed": 42}
+                run_params = {"concurrency": concurrency or 4, "max_retries": 3, "timeout": rp.get("timeout") or 1200, "seed": 42}
                 if limit is not None:
                     run_params["limit"] = limit
                 # 用户级生成参数覆盖 (max_tokens/temperature): 强制覆盖各评测集自带值
@@ -768,7 +770,26 @@ def _run_one(task_id: int):
             _log(task_id, f"✗ 任务异常: {e}", "error")
             # 取消过程中抛的异常 (如中断后的保存失败) 应标记 cancelled, 非 failed
             estatus = "cancelled" if cancel.is_set() else "failed"
-            db.update_task_status(task_id, estatus, error=None if cancel.is_set() else str(e), finished=True)
+            # 关键: 即使中途异常, 已跑完的集 (results 非空) 也要落盘并设 report_path,
+            # 否则 _SAMPLES 清理后明细无处可读 (任务#49 取消时中断异常致 report_path=None 丢失明细)。
+            if results:
+                try:
+                    save_json(results, _json_path)
+                    save_html(results, _html_path)
+                    summary = [
+                        {"benchmark": r.benchmark_meta.display_name, "stage": r.benchmark_meta.stage.value,
+                         "score": _extract_score(r.aggregate), "num_samples": r.num_samples}
+                        for r in results
+                    ]
+                    db.update_task_status(task_id, estatus, summary=summary, report_path=_rel_stem,
+                                          num_samples=sum(r.num_samples for r in results),
+                                          error=None if cancel.is_set() else str(e), finished=True)
+                    _log(task_id, f"📄 已保存 {len(results)} 集的部分结果: {_stem}.html")
+                except Exception as e2:  # noqa: BLE001
+                    _log(task_id, f"  ⚠ 异常收尾时保存失败: {e2}", "warn")
+                    db.update_task_status(task_id, estatus, error=None if cancel.is_set() else str(e), finished=True)
+            else:
+                db.update_task_status(task_id, estatus, error=None if cancel.is_set() else str(e), finished=True)
             _emit(task_id, {"type": "status", "status": estatus, "error": None if cancel.is_set() else str(e)}, loop)
             return
 
