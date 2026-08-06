@@ -23,6 +23,11 @@
 | gsm8k | 预训练 | GEN | 1319 |
 | bbh | 预训练 | GEN | 6511 |
 | drop | 预训练 | GEN | 9535 |
+| ifbench | 后训练 | RULE | 300 |
+| simpleqa_verified | 后训练 | GEN | 1000 |
+| imo_answerbench | 预训练 | GEN | 400 |
+| hmmt_feb_2025 | 预训练 | GEN | 30 |
+| livecodebench_v6 | 预训练 | CODE | 1054 |
 
 ## 已全量评测记录
 
@@ -126,6 +131,20 @@ ds1000 慢因单题平均吐 2214 token 思维链(慢题 max 15778),token 量是
 
 **结论**:GLM-5.2-fp8 端点不适合长时间(>几小时)32 并发长输出压测——会被压到 stall 甚至彻底无响应。全量评测长输出集(ds1000/simpleqa/bbh/drop)需在端点侧调优 KV cache / max-num-seqs 后重跑,或降低并发/分批跑。
 
+### 本次全量(任务 #67/#68,2026-08-05,model=glm-5.2-fp8)
+
+> 背景:跑今天新增的 4 个数据集(ifbench/simpleqa_verified/imo_answerbench/hmmt_feb_2025)。
+> 配置:concurrency=32→16, streaming=true, timeout=1200→1800。
+>
+> ⚠️ **#67 在 simpleqa_verified 末段再次撞上端点 RST stall**:ifbench + simpleqa_verified 前 880 条正常跑完后,端点在持续 ~1.5h 32 并发长输出负载下开始大量 `ConnectionResetError(54)`(累计 90+ 次)+ `IncompleteRead`,样本 880-1000 卡在重试循环(每样本 3×1200s 预算,实际 6h 只推进 14 条)。取消 #67(增量落盘救回 ifbench 65.3 + simpleqa_verified 30.8)。降并发到 16 单独跑 imo_answerbench + hmmt_feb_2025(#68)。印证 [[bbh-connection-reset]] 的结论:端点持续高并发长输出必崩,降并发是有效缓解。
+
+| 评测集 | 全量数 | 实得条数 | 分数 | 任务 ID | 状态 | 备注 |
+|--------|--------|----------|------|---------|------|------|
+| ifbench | 300 | 300 | 65.3 | #67 | ✅ 全量 | 首次全量;OOD 指令遵循泛化(58 类新约束,与 IFEval 25 类零重叠);乱码 B 级 |
+| simpleqa_verified | 1000 | 1000 | 30.8 | #67 | ✅ 全量 | LLM 裁判三分类;与 simpleqa 31.3%(#64)口径吻合,交叉验证评分一致性 |
+| imo_answerbench | 400 | - | - | #68 | 🔄 运行中 | 降并发 16, timeout 1800 |
+| hmmt_feb_2025 | 30 | - | - | #68 | 🔄 运行中 | 降并发 16, timeout 1800 |
+
 ## 未全量的评测集(待补)
 
 以下集尚未做过全量评测(仅小样本试跑或未跑过),后续可按需补全:
@@ -145,6 +164,7 @@ ds1000 慢因单题平均吐 2214 token 思维链(慢题 max 15778),token 量是
 | hellaswag | 预训练 | MCQ | 10042 | |
 | hle | 预训练 | GEN | 2500 | |
 | livecodebench | 预训练 | CODE | 442 | 单题耗时过长,暂缓 |
+| livecodebench_v6 | 预训练 | CODE | 1054 | release_v6全量(test+test2..test6共1055题,实测): 函数式444 + stdin610, 跳过1条other。stdin题解码private合并public(封顶: 单case≤50KB+单题≤200KB,裁剪压力测试级巨输入) |
 | longbench_v2 | 预训练 | MCQ | 503 | |
 | mmlu | 预训练 | MCQ | 14042 | |
 | mmlu_pro | 预训练 | MCQ | 12032 | |

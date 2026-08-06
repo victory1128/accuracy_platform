@@ -45,6 +45,70 @@ git push origin main --tags
 
 ---
 
+## [1.2.0] — 2026-08-05
+
+### 新增
+
+- **LiveCodeBench-v6 支持 stdin 题,扩展到官方 release_v6 全量**(`livecodebench_v6`, 预训练/CODE)。原仅评测函数式子集 444 题(LeetCode `class Solution` 风格),本次新增 stdin/stdout 式执行路径,覆盖 AtCoder/Codeforces 的 610 题,全量从 444 → **1054 题**(官方 1055 中 1 条 other 题跳过),与官方 release_v6 口径一致。
+  - **新增 `run_code_stdin`**(`llm_eval/scoring/code_exec.py`):stdin 式评测器,对每个 case 独立运行模型输出的完整程序、喂 stdin、规范化(去末尾换行/行尾空白)比对 stdout。复用现有沙箱机制(subprocess/docker),把"评测器脚本"(内嵌被测 program + cases)作为一段 code 经 `_run_in_subprocess`/`_run_in_docker` 跑一次,docker 只起一次容器。已验证 subprocess + docker 双模式 + 末尾换行容错 + 多 case + 崩溃/超时程序均正确。
+  - **下载脚本保留 stdin 题 + 解码 private**(`scripts/download_datasets.py`):`dl_livecodebench_v6` 不再跳过 stdin 题,按 testtype 分类保留(functional/stdin),新增 `exec_mode` 字段。新增 `_decode_lcb_private` 解码 `private_test_cases`(`base64→zlib→pickle→json` 三层封装,非加密),stdin 题 `test_code` 存 **public + 解码后的 private 合并**(与 LCB 官方评测口径一致)。注册表预计条数 444 → 1055。
+  - **stdin 用例封顶**:private 用例含压力测试级巨输入(单题可达 194MB,全量 stdin 合计 8GB),原样嵌入 jsonl 会 OOM。新增 `_cap_lcb_stdin_cases`:每 case ≤50KB + 每题总计 ≤200KB,裁剪掉巨输入 case。封顶后 stdin jsonl 13.7MB(全量 8GB),保留 12021/15485 用例(78%),被裁的是随机大数组,对 pass@1 区分度影响小,评测更快更稳。
+  - **evaluate/build_prompt 分流**(`llm_eval/benchmarks/livecodebench_v6.py`):`load_samples` 存 `exec_mode` 进 meta;`build_prompt` 按模式分流(functional 给 starter_code + 函数名提示 / stdin 给"完整程序读 stdin 写 stdout"指令);`evaluate` 按模式分流(functional 走现有 harness + `run_code_tests` / stdin 走 `run_code_stdin`)。新增 `_parse_lcb_stdin_cases` 解析 stdin case。runner/任务链/报告/SSE 全不用改。
+  - 数据重建:`data/livecodebench_v6.jsonl` 用新脚本重新构建(从本地 6 文件),校验 total=1054、functional=444、stdin=610,文件 17MB。
+  - 端到端验证:真实 stdin 题(ceil(A/B))用正确程序 subprocess+docker 双模式均通过 15 case、错误程序 fail;函数式题(444)行为不变。
+
+### 移除
+
+- **开发模式面板下线**:移除前端"开发模式"页(`renderDev` 及其 `doDryRun`/`doQuick`/`doReload`/`doHealth` 五个函数 + `api.dryRun`/`quickSample`/`reloadBench`/`health` 包装)。这些函数调用的是早已移除的后端端点(`/api/dev/dry-run`/`quick-sample`/`reload-benchmarks`/`health`),属残留死代码——`dev_routes.py` 自身注释也标"已暂时移除"。`dev_routes.py` 收缩为仅 `GET /api/benchmarks`(评测集目录,注册页/任务表单共用),`schemas.py` 删除 `QuickSampleIn`/`DryRunIn` 两个死模型,`routes/__init__.py` 与 `app.js` 顶部路由注释同步更正。**注**:提交表单的"运行模式"下拉(dry_run/quick)与 `taskman` 的 `_dry_run` 执行路径是另一套**仍在用**的功能(走正常 `create_task` 流程),未受影响,保留。
+
+### 修复
+
+- **API Key 改为可选**(`llm_eval/client.py` / `schemas.py:ModelConfigIn` / `task_routes.py`):`api_key` 从必填改为默认空串。`LLMClient` 抽出 `_headers()`,`api_key` 为空时**不发** `Authorization` 头(适配本地/自建无鉴权端点),非空时照常 `Bearer`。提交接口不再因空 key 拒绝(原 `dry_run` 外强制要求 key 的校验移除)。运行模式 `dry_run`/`quick` 仍可不填 key,`real` 模式建议填写。
+- **LCB-v6 `max_tokens` 8192 → 131072**(`llm_eval/benchmarks/livecodebench_v6.py:parse_params`):思维链模型(glm-5.2-fp8)生成竞赛代码时先在 `reasoning_content` 长时间推理,原 `max_tokens=8192` 被思维链耗尽 → 代码未开始输出即 `finish_reason=length` 截断 → 全题无代码块判 fail。task #69 全量首跑实测验证:completion_tokens 顶满 8192、reasoning_chars 27947、response 无代码块。改为 131072(与 AIME/HMMT/IMO 等竞赛题一致),给推理+代码足够预算。runner 的 `override_params` 已正确处理(`null` 不覆盖评测集自带值),无需改动。
+
+- **LCB/LCB-v6 harness 布尔值 NameError**(`_json_safe_repr`, `livecodebench.py` + `livecodebench_v6.py`):`_json_safe_repr` 原用 `json.dumps` 把 expected 转字面量嵌入 harness,但 `json.dumps(True)→"true"`、`json.dumps(None)→"null"`,这些在 Python 里不是合法字面量 → harness 执行时 `NameError: name 'true' is not defined` → 模型代码即使完全正确也被误判 fail。task #70 实测:444 题函数式中 31 题(7%)expected 含布尔值,全部系统性误判。改为 `repr()`(`repr(True)→"True"`、`repr(None)→"None"`,均为合法 Python 字面量),验证模型正确代码现在判 PASS。原版 `livecodebench` 同 bug 一并修复。
+
+- **LCB-v6 思维链泄漏误报 SyntaxError**(`livecodebench_v6.py:evaluate`):glm-5.2 对部分竞赛题推理发散,把数十万字符自然语言推理写进 content 且不用 ```python 块,被 max_tokens 截断(`finish_reason=length`)。`extract_code` 无代码块时返回整个 response,把自然语言当代码执行 → SyntaxError,误导成"代码语法错"。改为:response 非空却无代码块时,直接标记"未输出代码块(思维链泄漏/截断)",不执行残缺内容。correct 仍为 False(诚实:模型确实没产出可执行代码),仅让错误信息可区分"模型没写完代码"vs"代码逻辑错",不虚增分数。
+
+
+### 文档
+
+- `FULL_COVERAGE.md` / `README.md`:`livecodebench_v6` 条目 444 → 1054,描述改为"release_v6 全量(函数式444 + stdin610)"。
+
+---
+
+## [1.1.0] — 2026-08-04
+
+### 新增
+
+- **5 个新评测集上线**。下载脚本经真实数据探测后修正了 3 处数据源/字段错误(见下"修复"),全部 5 集真实下载 + 端到端评分验证通过:
+  - **HMMT-Feb-2025**(`hmmt_feb_2025`, 预训练/GEN):哈佛-MIT 数学锦标赛 2025 年 2 月赛,30 题高难度竞赛数学。数据源 MathArena/hmmt_feb_2025,复用 `_MathBenchmark`,思维链长同 AIME 用 `max_tokens=131072`。
+  - **IMO-AnswerBench**(`imo_answerbench`, 预训练/GEN):Google DeepMind 国际数学奥林匹克短答案评测,400 题(代数/组合/几何/数论)。数据源 OpenEvals/IMO-AnswerBench,复用 `_MathBenchmark`,同 AIME 大预算。
+  - **SimpleQA-Verified**(`simpleqa_verified`, 后训练/GEN):OpenAI SimpleQA 的人工核验修订版(google/simpleqa-verified,1000 题)。与现有 `simpleqa` 同数据源,口径明确标注"核验版",复用 simpleqa 评分函数(`grade_simpleqa` LLM 裁判三分类 A/B/C + 宽松匹配 + acceptable range 兜底)。
+  - **IFBench**(`ifbench`, 后训练/RULE):Allen AI 可验证指令遵循泛化评测,300 题,58 个 OOD 新约束(与 IFEval 平行独立)。**不**复用 IFEval 规则引擎——IFBench 的 58 类约束与 IFEval 25 类零重叠,平台 `check_ifeval` 无法评分。改为 vendor 官方 verifier(见下"IFBench 官方 verifier 对接")。
+  - **LiveCodeBench-v6**(`livecodebench_v6`, 预训练/CODE):LiveCodeBench release_v6 全量累积函数式子集(~525 题)。数据源 `code_generation_lite` 的 test+test2..test6 共 6 个文件(官方累积 release_v6 共 1055 题),按 question_id 去重后只保留函数式子集(LeetCode `class Solution` 风格),stdin 式暂不支持。与官方 release_v6 口径一致(非仅 v6 增量 63 题)。字段与原版 test_generation 不同(无 function_name/test 字段),故评测类重写 evaluate + 自定义 `Solution().method(*args)` harness(见下"修复")。
+- `scripts/download_datasets.py` 新增对应 5 个下载函数 + DATASETS 注册项。
+
+### IFBench 官方 verifier 对接
+
+- **问题**:初版 IFBench 下载用 `_ifeval_to_constraints` 把约束转平台格式,但实测 300 条**全部转为空**——IFBench 的 58 类约束(`count:`/`format:`/`ratio:`/`words:`/`custom:` 等)与 IFEval 25 类(`punctuation:`/`keywords:`/`detectable_format:` 等)零重叠,映射表 `_MAP` 一个都匹配不上,导致 constraints 全空、评分无分母。
+- **修复**:vendor 了 allenai/IFBench 官方 verifier 到 `llm_eval/scoring/ifbench_verifier/`(`instructions.py` 59 个 checker 类 + `instructions_registry.py` 映射 + `instructions_util.py` 工具函数,Apache 2.0)。两处 `import instructions`/`import instructions_util` 改为包内相对导入。IFBench 评测类重写 `_eval_rule`:逐约束实例化官方 checker → `build_description(**kwargs)` → 需 prompt 时按官方注入 → `check_following(response)`,与官方 `evaluation_lib` strict 模式一致。下载函数改为存原始 `instruction_id_list`+`kwargs`(过滤 None)为 `ifbench_constraints` 字段。
+- **依赖**:新增 `nltk`/`emoji`/`syllapy`(官方 `instructions.py` 顶层导入),已加 `requirements.txt`。首次导入时 `instructions_util.download_nltk_resources()` 自动下载 punkt/stopwords 等 NLTK 数据到包内 `.nltk_data/`。
+- **验证**:344 个约束全部被 58 个 checker 覆盖(0 未知);空响应→rate 0、不合规响应→0/1、合规响应(关键词精确计数)→1/1,判别力正确;20 样本(含需 prompt 注入的 `repeat:` 类)零异常。
+
+### 修复
+
+- **3 处数据源/字段错误(真实数据探测发现)**:
+  - **`allenai/IFBench_test` split 名**:原写 `split="test"` 实测报 `Unknown split "test". Should be one of ['train']`,改为 `split="train"`。
+  - **`livecodebench/code_generation_lite` 加载脚本不再被支持**:该 repo 用 `.py` 加载脚本,新版 `datasets` 抛 `Dataset scripts are no longer supported`。原版下载函数 `load_dataset(repo, split="test")` 失效。改为用 `load_dataset("json", data_files=...)` 直接引用各 `testN.jsonl`(绕过脚本)。同时发现数据是混合模式(函数式 + stdin 式),非原假设的"字段同 test_generation",重写下载函数只取函数式子集 + 从 starter_code 提取函数名。后改为全量累积(合并 6 个文件取函数式子集 ~525 题),与官方 release_v6 口径一致。
+  - **`_load_hf` 的 `trust_remote_code` 参数已废弃**:新版 `datasets` 不再支持(虽只 warning 不致命),实测 4 个数据集在 HF 镜像(hf-mirror.com)未同步导致下载失败,直连 HF 官方源即可。下载函数移除对该参数的依赖。
+- **LiveCodeBench-v6 评测类重写 evaluate**:原设计纯继承 `LiveCodeBench.evaluate`,但 v6 数据是 `class Solution: def method(self,...)` 方法式(带 self),原版 harness `fn(*args)` 直接调用方法名会 NameError。重写为 `Solution().method(*args)` harness(`_build_v6_harness`),函数名从 starter_code 正则提取。验证:正确算法→pass、错误实现→fail(断言失败)。
+
+### 调研
+
+- **Rumo**:全网无可靠来源(HuggingFace/GitHub/arXiv/中文渠道均无),不存在名为 "Rumo" 的公开 LLM 评测数据集,疑似拼写有误或内部未公开集。
+- **SysBench**:确认存在——`PKU-Baichuan-MLSystemLab/SysBench`(arXiv:2408.10943),500 对话×5 轮测系统消息遵循(6 类约束,CSR/ISR/SSR 指标,GPT-4o verifier)。与 NVIDIA `Nemotron-RL-SysBench-v1`(2026 RL 训练数据)同名不同源。本期未接入,后续可按需实现。
+
 ## [1.0.6] — 2026-08-04
 
 ### 优化

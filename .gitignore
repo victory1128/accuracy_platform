@@ -38,6 +38,8 @@ __pycache__/
 *.egg-info/
 .eggs/
 build/
+# IFBench verifier 首次导入时自动下载的 NLTK 数据 (punkt/stopwords 等), 可重建
+llm_eval/scoring/ifbench_verifier/.nltk_data/
 dist/
 
 # ---- 虚拟环境 ----

@@ -1,5 +1,5 @@
 // 单页应用: hash 路由 + 原生 JS。无构建步骤。
-// 路由: #/login  #/dashboard  #/tasks/new  #/tasks/:id  #/admin  #/dev
+// 路由: #/login  #/dashboard  #/tasks/new  #/tasks/:id  #/admin
 
 const api = {
   async req(path, opts = {}) {
@@ -35,10 +35,6 @@ const api = {
   sample: (id, sid) => api.req('/api/tasks/' + id + '/samples/' + sid),
   requests: (id, benchmark) => api.req('/api/tasks/' + id + '/requests' + (benchmark ? '?benchmark=' + encodeURIComponent(benchmark) : '')),
   requestSample: (id, sid) => api.req('/api/tasks/' + id + '/requests/' + encodeURIComponent(sid)),
-  dryRun: (b) => api.req('/api/dev/dry-run', { method: 'POST', body: b }),
-  quickSample: (b) => api.req('/api/dev/quick-sample', { method: 'POST', body: b }),
-  reloadBench: () => api.req('/api/dev/reload-benchmarks', { method: 'POST' }),
-  health: () => api.req('/api/dev/health'),
   changePassword: (oldp, newp) => api.req('/api/auth/password', { method: 'POST', body: { old_password: oldp, new_password: newp }, raw: true }),
   adminUsers: () => api.req('/api/admin/users'),
   adminTasks: (params) => api.req('/api/admin/tasks' + (params ? '?' + new URLSearchParams(params) : '')),
@@ -174,7 +170,6 @@ async function route() {
       return renderTaskDetail(parts[2]);
     }
     if (hash === '/admin') return roleLvl(S.user.role) >= roleLvl('admin') ? renderAdmin() : (main.innerHTML = '<div class="alert err">需要管理员权限</div>');
-    if (hash === '/dev') return renderDev();
     if (hash === '/password') return renderChangePassword();
     if (hash === '/logout') { await api.logout(); S.user = null; location.hash = '#/login'; return; }
     location.hash = '#/dashboard';
@@ -186,7 +181,6 @@ async function route() {
 function renderTopbar() {
   const nav = [
     ['#/dashboard', '仪表板'], ['#/tasks/new', '新建任务'],
-    ['#/dev', '开发模式'],
   ];
   if (S.user && roleLvl(S.user.role) >= roleLvl('admin')) nav.push(['#/admin', '管理后台']);
   const hash = location.hash.slice(1) || '/';
@@ -686,88 +680,6 @@ function appendLog(level, msg, ts) {
 async function cancelTask(id) {
   if (!confirm('取消该任务?')) return;
   try { await api.cancelTask(id); } catch (e) { alert(e.message); }
-}
-
-// ----------------------------- 开发模式 -----------------------------
-function renderDev() {
-  setMain(`<h1>开发模式</h1><div class="sub">快速验证评测集 / 新特性 / 调试 bug</div>
-    <div class="card">
-      <div class="card-title">1. Dry-Run (不调真实 API)</div>
-      <div class="hint">用模拟响应跑通评分+报告全流程, 验证新增评测集是否注册/评分正确。</div>
-      <label>评测集 (逗号分隔)</label><input type="text" id="d_benches" placeholder="mmlu, gsm8k">
-      <label>采样条数</label><input type="number" id="d_limit" value="5">
-      <button class="btn" onclick="doDryRun()">执行 dry-run</button>
-      <div id="d_result" style="margin-top:12px"></div>
-    </div>
-    <div class="card">
-      <div class="card-title">2. 快速小样本试跑 (调真实 API, limit 小)</div>
-      <div class="hint">填真实 API, 一键用小样本快速验证模型/评测集是否跑得通。</div>
-      <div class="row">
-        <div><label>模型名</label><input type="text" id="q_model" placeholder="glm-5.2-fp8"></div>
-        <div><label>Base URL</label><input type="text" id="q_base" placeholder="https://..."></div>
-      </div>
-      <div class="row">
-        <div><label>API Key</label><input type="password" id="q_key" placeholder="sk-..." autocomplete="off"></div>
-        <div><label>采样条数</label><input type="number" id="q_limit" value="5"></div>
-      </div>
-      <label>评测集 (逗号分隔)</label><input type="text" id="q_benches" placeholder="mmlu, gsm8k">
-      <button class="btn" onclick="doQuick()">开始试跑</button>
-      <div id="q_result" style="margin-top:12px"></div>
-    </div>
-    ${S.user.role === 'admin' ? `<div class="card">
-      <div class="card-title">3. 热加载评测集插件 (仅管理员)</div>
-      <div class="hint">开发时新增/修改 benchmarks/ 下评测集后, 不重启即生效。</div>
-      <button class="btn secondary" onclick="doReload()">热加载</button>
-      <div id="r_result" style="margin-top:12px"></div>
-    </div>
-    <div class="card">
-      <div class="card-title">4. 平台自检 (仅管理员)</div>
-      <button class="btn secondary" onclick="doHealth()">自检</button>
-      <div id="h_result" style="margin-top:12px"></div>
-    </div>` : '<div class="alert">热加载与平台自检仅管理员可用。</div>'}`);
-}
-async function doDryRun() {
-  const benches = document.getElementById('d_benches').value.split(',').map(s => s.trim()).filter(Boolean);
-  const limit = parseInt(document.getElementById('d_limit').value) || 5;
-  if (!benches.length) return alert('填评测集');
-  document.getElementById('d_result').innerHTML = '<div class="hint">执行中...</div>';
-  try {
-    const r = await api.dryRun({ model_name: 'dry-run', benchmarks: benches, limit });
-    document.getElementById('d_result').innerHTML = r.ok
-      ? `<div class="table-wrap"><table><thead><tr><th>评测集</th><th>样本</th><th>分数</th></tr></thead><tbody>${r.brief.map(b => `<tr><td class="cell-wrap">${esc(b.benchmark)}</td><td>${b.num_samples}</td><td><b>${esc(b.score)}</b></td></tr>`).join('')}</tbody></table></div>`
-      : `<div class="alert err">${esc(r.error)}</div>`;
-  } catch (e) { document.getElementById('d_result').innerHTML = `<div class="alert err">${esc(e.message)}</div>`; }
-}
-async function doQuick() {
-  const model = document.getElementById('q_model').value.trim();
-  const base = document.getElementById('q_base').value.trim();
-  const key = document.getElementById('q_key').value;
-  const benches = document.getElementById('q_benches').value.split(',').map(s => s.trim()).filter(Boolean);
-  const limit = parseInt(document.getElementById('q_limit').value) || 5;
-  if (!model || !base || !key || !benches.length) return alert('请填完整');
-  document.getElementById('q_result').innerHTML = '<div class="hint">已提交, 跳转任务详情...</div>';
-  try {
-    const t = await api.quickSample({
-      model_config: { name: model, base_url: base, api_key: key, model },
-      benchmarks: benches, limit, streaming: false,
-    });
-    location.hash = '#/tasks/' + t.id;
-  } catch (e) { document.getElementById('q_result').innerHTML = `<div class="alert err">${esc(e.message)}</div>`; }
-}
-async function doReload() {
-  document.getElementById('r_result').innerHTML = '<div class="hint">加载中...</div>';
-  try {
-    const r = await api.reloadBench();
-    document.getElementById('r_result').innerHTML = `✓ 已加载 ${r.count} 个评测集${r.errors.length ? '<div class="alert err">' + r.errors.map(e => esc(e.module + ': ' + e.error)).join('<br>') + '</div>' : ''}`;
-    S.benchmarks = r.benchmarks;
-  } catch (e) { document.getElementById('r_result').innerHTML = `<div class="alert err">${esc(e.message)}</div>`; }
-}
-async function doHealth() {
-  document.getElementById('h_result').innerHTML = '<div class="hint">检查中...</div>';
-  try {
-    const h = await api.health();
-    document.getElementById('h_result').innerHTML = `<div class="card" style="margin:0"><pre class="mono">${esc(JSON.stringify(h, null, 2))}</pre></div>`;
-  } catch (e) { document.getElementById('h_result').innerHTML = `<div class="alert err">${esc(e.message)}</div>`; }
 }
 
 // ----------------------------- 管理后台 -----------------------------

@@ -150,5 +150,10 @@ def _build_lcb_harness(entry_point: str, cases: List[dict]) -> str:
 
 
 def _json_safe_repr(obj) -> str:
-    """把 Python 对象转成可 eval 的字面量 (用 json.dumps, 保证类型无损)。"""
-    return json.dumps(obj, ensure_ascii=False)
+    """把 Python 对象转成可 eval 的 Python 字面量 (嵌入 harness 当源码执行)。
+
+    必须用 repr 而非 json.dumps: json.dumps(True)→"true"、json.dumps(None)→"null",
+    这些在 Python 里不是合法字面量, 写进 harness 会 NameError("name 'true' is not defined")。
+    repr(True)→"True"、repr(None)→"None" 才是合法 Python 字面量。返回 bool 的题全受此影响。
+    """
+    return repr(obj)

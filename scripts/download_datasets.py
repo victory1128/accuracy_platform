@@ -907,6 +907,250 @@ def dl_swebench() -> List[dict]:
     return rows
 
 
+# ===================== 第三批新增 (前沿竞赛/IF/代码) =====================
+
+def dl_hmmt_feb_2025() -> List[dict]:
+    """HMMT 2025 February: 哈佛-MIT 数学锦标赛 (MathArena/hmmt_feb_2025)。
+
+    字段: problem (LaTeX 题面), answer (最终答案)。
+    """
+    ds = _load_hf("MathArena/hmmt_feb_2025", split="train")
+    rows = []
+    for i, r in enumerate(ds):
+        rows.append({
+            "sample_id": f"hmmt_feb_2025_{i}",
+            "question": r.get("problem", ""),
+            "gold": str(r.get("answer", "")).strip(),
+        })
+    return rows
+
+
+def dl_imo_answerbench() -> List[dict]:
+    """IMO-AnswerBench: 国际数学奥林匹克短答案 (OpenEvals/IMO-AnswerBench)。
+
+    字段: Problem (题面), Short Answer (短答案), Category, Source。
+    """
+    ds = _load_hf("OpenEvals/IMO-AnswerBench", split="train")
+    rows = []
+    for i, r in enumerate(ds):
+        rows.append({
+            "sample_id": f"imo_answerbench_{i}",
+            "question": r.get("Problem", ""),
+            "gold": str(r.get("Short Answer", "")).strip(),
+        })
+    return rows
+
+
+def dl_simpleqa_verified() -> List[dict]:
+    """SimpleQA-Verified: OpenAI SimpleQA 的人工核验修订版 (google/simpleqa-verified, 1000题)。
+
+    注: 现有 simpleqa 评测集的数据源也是 google/simpleqa-verified, 但评测口径用 Google
+    原版归一化匹配。本集作为独立评测集, 用官方改进的 LLM judge 三分类口径 (强制直接作答、
+    防猜测、改进数值评分)。字段: problem/answer/topic/answer_type。
+    """
+    ds = _load_hf("google/simpleqa-verified", split="eval")
+    rows = []
+    for i, r in enumerate(ds):
+        rows.append({
+            "sample_id": f"simpleqa_verified_{i}",
+            "question": r.get("problem", ""),
+            "gold": str(r.get("answer", "")).strip(),
+            "topic": r.get("topic", ""),
+        })
+    return rows
+
+
+def dl_ifbench() -> List[dict]:
+    """IFBench: 可验证指令遵循泛化评测 (allenai/IFBench_test, 300题)。
+
+    与 IFEval 平行独立, 测模型能否泛化到未见过的新约束 (58 个 OOD 约束类型, 与 IFEval
+    的 25 类零重叠)。字段: prompt (含约束的指令), instruction_id_list (约束类型 ID 列表),
+    kwargs (每约束的验证参数列表)。
+
+    评分: 不走平台 IFEval 规则引擎 (约束类型不兼容), 而是 vendor 了 allenai/IFBench 官方
+    verifier (llm_eval/scoring/ifbench_verifier/), IFBench 评测类 _eval_rule 直接调官方
+    checker.check_following。故下载时保留原始 instruction_id_list + kwargs (过滤 None 值,
+    与官方 strict 模式一致), 存为 ifbench_constraints 字段。
+    注: 该数据集只有 train split (无 test/validation)。
+    """
+    ds = _load_hf("allenai/IFBench_test", split="train")
+    rows = []
+    for i, r in enumerate(ds):
+        inst_ids = r.get("instruction_id_list", [])
+        kwargs_list = r.get("kwargs", [])
+        # 保留原始 instruction_id + kwargs (过滤 None 值, 同官方 strict 模式)
+        ifbench_constraints = []
+        for inst_id, kwargs in zip(inst_ids, kwargs_list):
+            clean_kw = {k: v for k, v in (kwargs or {}).items() if v is not None}
+            ifbench_constraints.append({"instruction_id": inst_id, "kwargs": clean_kw})
+        rows.append({
+            "sample_id": f"ifbench_{i}",
+            "question": r.get("prompt", ""),
+            "ifbench_constraints": ifbench_constraints,
+        })
+    return rows
+
+
+def _decode_lcb_private(priv_str: str) -> list:
+    """解码 LiveCodeBench 的 private_test_cases 字段。
+
+    private_test_cases 是 base64(zlib(pickle(json_str))) 三层封装 (非加密):
+      base64.b64decode → zlib.decompress → pickle.loads → json.loads
+    返回 [{"input","output","testtype":...}, ...] 列表; 任一步失败返回 [] (容错)。
+    """
+    import base64
+    import pickle
+    import zlib
+    if not priv_str or not priv_str.strip():
+        return []
+    try:
+        raw = pickle.loads(zlib.decompress(base64.b64decode(priv_str)))
+        cases = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(cases, list):
+            return cases
+        return []
+    except Exception:  # noqa: BLE001 - 解码失败容错, 不阻断下载
+        return []
+
+
+# stdin 用例封顶: 单 case 字节数上限 + 单题总字节数上限。
+# LCB private 用例含压力测试级巨输入 (单题可达 194MB), 原样嵌入 jsonl 会 OOM;
+# 裁剪掉超限 case (多为随机大数组, 对 pass@1 区分度影响小), 保留中小 case。
+_STDIN_CASE_MAX_BYTES = 50_000      # 单 case (input+output) ≤ 50KB
+_STDIN_PROBLEM_MAX_BYTES = 200_000  # 单题所有 case 合计 ≤ 200KB
+
+
+def _cap_lcb_stdin_cases(cases: list) -> list:
+    """封顶 stdin 用例: 丢弃超 _STDIN_CASE_MAX_BYTES 的 case, 累计达 _STDIN_PROBLEM_MAX_BYTES 截断。
+
+    保留 public 在前 (cases 已是 public + private 顺序, public 是题面示例通常小且重要)。
+    """
+    out = []
+    total = 0
+    for c in cases:
+        if not isinstance(c, dict):
+            continue
+        csz = len(str(c.get("input", ""))) + len(str(c.get("output", "")))
+        if csz > _STDIN_CASE_MAX_BYTES:
+            continue
+        if total + csz > _STDIN_PROBLEM_MAX_BYTES:
+            break
+        out.append({"input": str(c.get("input", "")), "output": str(c.get("output", ""))})
+        total += csz
+    return out
+
+
+def dl_livecodebench_v6() -> List[dict]:
+    """LiveCodeBench-v6: release_v6 全量累积 (livecodebench/code_generation_lite)。
+
+    官方 release_v6 (2023-05 ~ 2025-04) 累积共 1055 题, 由 6 个文件组成:
+    test.jsonl(v1) + test2.jsonl(v2增量) + ... + test6.jsonl(v6增量)。
+    code_generation_lite 的加载脚本 (code_generation_lite.py) 已不被新版 datasets 支持
+    (Dataset scripts are no longer supported), 故这里手动按官方 ALLOWED_FILES["release_v6"]
+    的逻辑: 顺序合并全部 6 个文件, 不做平台侧额外过滤前的去重 (官方脚本本身也不去重,
+    但各 testN 是按竞赛时间增量切分, question_id 跨文件不重复; 这里仍按 question_id 去重兜底)。
+
+    该全集是混合模式, 本次按 testtype 分类全保留 (与官方 release_v6 口径一致, 共 1055 题):
+      - 函数式 444 题 (LeetCode 风格, starter_code 为 "class Solution: def method(self,...)")
+      - stdin/stdout 式 610 题 (AtCoder/Codeforces 风格, 读 stdin 写 stdout)
+    exec_mode 字段标注分类 (functional / stdin), 供 v6 评测类 (livecodebench_v6.py) 分流执行:
+      functional → 现有 harness + run_code_tests (函数式评测器)
+      stdin → 新增 run_code_stdin (对每 case 跑程序喂 stdin 比对 stdout)
+
+    测试用例口径 (关键): LCB 官方评测 (lcb_runner) 用 public + private 合并作完整测试集。
+    public_test_cases 仅 1-3 个题面示例, 不足以严肃评测; private_test_cases 是
+    base64(zlib(pickle(json))) 三层封装 (非加密, 可解码)。故:
+      - stdin 题: test_code 存 public + 解码后的 private 合并 (input/output 完整)
+      - functional 题: 沿用原口径仅 public (函数式 public 通常已含多 case, 影响小; 不改)
+
+    与原版 test_generation (纯 "def fn(...)" 函数式, function_name 字段) 的差异:
+      - 无 function_name 字段 → 从 starter_code 正则提取方法名作 entry_point (函数式题)
+      - starter_code 是 class Solution 方法 (带 self) → harness 用 Solution().method(*args)
+        而非父类的 fn(*args)。故 evaluate 不能直接继承, 需自定义 harness builder。
+      - test 在 public_test_cases 字段 (非 test 字段), 但 JSON 结构相同, 复用 _parse_lcb_tests。
+    entry_point/starter_code/test_code/exec_mode 四字段供 v6 评测类使用。
+    """
+    import re
+    import urllib.request
+    base = "https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/main"
+    # 官方 release_v6 = 全部 6 个文件 (test.jsonl 是 v1, 无 "test1" 命名)
+    files = ["test.jsonl", "test2.jsonl", "test3.jsonl",
+             "test4.jsonl", "test5.jsonl", "test6.jsonl"]
+    rows = []
+    seen_qids = set()  # 按 question_id 去重兜底 (官方脚本本身不去重, 但各增量文件 qid 不重叠)
+    idx = 0
+    for fn in files:
+        # 直接流式拉取 jsonl 逐行解析 (不用 load_dataset, 后者会把 1GB+ 文件整下载到
+        # datasets 缓存再内存解析, 慢且经代理易卡死)。逐行 read 失败可断点重试。
+        url = f"{base}/{fn}"
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(url, timeout=60) as resp:
+                    for raw in resp:
+                        raw = raw.strip()
+                        if not raw:
+                            continue
+                        r = json.loads(raw)
+                        qid = r.get("question_id", "")
+                        if qid and qid in seen_qids:
+                            continue  # 跨文件重复题跳过 (理论上不发生, 兜底)
+                        if qid:
+                            seen_qids.add(qid)
+                        ptc = r.get("public_test_cases", "")
+                        try:
+                            cases = json.loads(ptc) if ptc else []
+                        except (json.JSONDecodeError, TypeError):
+                            cases = []
+                        # 按 testtype 分类: functional (函数式) 或 stdin (stdin/stdout 式)。
+                        # 含 functional 用例的题走函数式评测 (LeetCode class Solution 风格);
+                        # 否则若含 stdin 用例, 走 stdin 评测 (AtCoder/Codeforces)。两者都不含则跳过。
+                        is_func = any(isinstance(c, dict) and c.get("testtype") == "functional"
+                                      for c in cases)
+                        is_stdin = any(isinstance(c, dict) and c.get("testtype") == "stdin"
+                                       for c in cases)
+                        if is_func:
+                            # 函数式题: 沿用原口径 (仅 public_test_cases, JSON 串原样存)。
+                            # 从 starter_code 提取函数名 (class Solution: def methodName(self, ...))
+                            sc = r.get("starter_code", "")
+                            m = re.search(r"def\s+(\w+)\s*\(", sc)
+                            entry_point = m.group(1) if m else f"lcb_v6_{idx}"
+                            rows.append({
+                                "sample_id": f"livecodebench_v6_{idx}",
+                                "entry_point": entry_point,
+                                "prompt": r.get("question_content", ""),
+                                "starter_code": sc,
+                                "test_code": ptc,
+                                "exec_mode": "functional",
+                            })
+                            idx += 1
+                        elif is_stdin:
+                            # stdin 题: test_code 存 public + 解码后的 private 合并 (input/output
+                            # 完整), 与 LCB 官方评测口径一致。stdin 题无函数签名。
+                            # private 用例含压力测试级巨输入 (单题可达 194MB, 全量 8GB),
+                            # 原样嵌入 jsonl 不可行 (OOM/慢); 按 _cap_lcb_stdin_cases 封顶:
+                            # 每 case ≤50KB + 每题总计 ≤200KB, 裁剪掉巨输入 case (对 pass@1
+                            # 区分度影响小, 评测更快更稳)。
+                            priv = r.get("private_test_cases", "")
+                            priv_cases = _decode_lcb_private(priv)
+                            merged = _cap_lcb_stdin_cases(cases + priv_cases)
+                            rows.append({
+                                "sample_id": f"livecodebench_v6_{idx}",
+                                "entry_point": "",
+                                "prompt": r.get("question_content", ""),
+                                "starter_code": "",
+                                "test_code": json.dumps(merged, ensure_ascii=False),
+                                "exec_mode": "stdin",
+                            })
+                            idx += 1
+                        # 既非 functional 也非 stdin 的题 (实测全量仅 1 条 other) 跳过
+                break  # 成功读完此文件
+            except Exception as e:
+                if attempt == 3:
+                    raise
+                print(f"    {fn} 拉取失败 (attempt {attempt+1}/4): {repr(e)[:120]}, 重试...")
+    return rows
+
+
 # 数据集注册表: name -> (下载函数, 预计条数)
 DATASETS = {
     "mmlu":        (dl_mmlu,        14042),
@@ -945,6 +1189,12 @@ DATASETS = {
     "corpusqa":      (dl_corpusqa,      2000),
     "bfcl":          (dl_bfcl,          400),
     "swebench":      (dl_swebench,      500),
+    # 第三批新增 (前沿竞赛数学 / 指令遵循泛化 / 代码)
+    "hmmt_feb_2025":      (dl_hmmt_feb_2025,      30),
+    "imo_answerbench":    (dl_imo_answerbench,    400),
+    "simpleqa_verified":  (dl_simpleqa_verified,  1000),
+    "ifbench":            (dl_ifbench,            300),
+    "livecodebench_v6":   (dl_livecodebench_v6,   1055),
 }
 
 

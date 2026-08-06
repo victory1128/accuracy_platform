@@ -95,7 +95,12 @@ pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 ```bash
 python -c "import fastapi, uvicorn, requests, yaml; print('核心依赖 OK')"
+python -c "import nltk, emoji, syllapy; print('IFBench verifier 依赖 OK')"
 ```
+
+> `nltk`/`emoji`/`syllapy` 是 IFBench 评测集官方 verifier 的依赖。首次运行 IFBench 时
+> 会自动下载 NLTK 数据(punkt/stopwords 等,约 5MB)到 `llm_eval/scoring/ifbench_verifier/.nltk_data/`,
+> 需联网一次;之后离线可用。
 
 ---
 

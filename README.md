@@ -146,6 +146,8 @@ server:
 | gsm8k | 预训练 | GEN | 小学数学 |
 | math500 | 预训练 | GEN | 竞赛数学 |
 | aime | 预训练 | GEN | 美国数学邀请赛 |
+| hmmt_feb_2025 | 预训练 | GEN | 哈佛-MIT数学锦标赛2025年2月赛, 30题 |
+| imo_answerbench | 预训练 | GEN | 国际数学奥林匹克短答案, 400题 |
 | hle | 预训练 | GEN | 人类终极考试, 极难专家级问题 |
 | drop | 预训练 | GEN | 阅读理解+离散推理 |
 | longbench_v2 | 预训练 | MCQ | 长文本理解, 4选项长上下文 |
@@ -156,11 +158,14 @@ server:
 | evalplus | 预训练 | CODE | HumanEval增强版, 更严测试 |
 | bigcodebench | 预训练 | CODE | 实用代码生成, 需数据科学库 |
 | livecodebench | 预训练 | CODE | 竞赛代码生成(LeetCode风格) pass@1 |
+| livecodebench_v6 | 预训练 | CODE | LiveCodeBench release_v6全量(1054题: 函数式444 class Solution + stdin610 AtCoder/Codeforces) pass@1 |
 | ds1000 | 预训练 | CODE | 数据科学代码(pandas/numpy) |
 | swebench | 预训练 | CODE | 代码Agent, 修复真实GitHub issue |
 | simpleqa | 后训练 | GEN | 短答案事实性问答 |
+| simpleqa_verified | 后训练 | GEN | SimpleQA人工核验修订版, LLM裁判三分类 |
 | bfcl | 后训练 | GEN | 函数调用(tool use)能力评测 |
 | ifeval | 后训练 | RULE | 指令遵循(可验证) |
+| ifbench | 后训练 | RULE | 指令遵循泛化, 58个OOD新约束(与IFEval平行独立) |
 | mt_bench | 后训练 | JUDGE | 多轮对话, 裁判打分 |
 | alpaca_eval | 后训练 | JUDGE | 回答质量胜率 |
 | arena_hard | 后训练 | JUDGE | 高难度指令配对胜率 |

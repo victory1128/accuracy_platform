@@ -45,7 +45,7 @@ class ModelConfigIn(BaseModel):
     """
     name: str
     base_url: str
-    api_key: str
+    api_key: str = ""   # 可选: 本地/自建端点无需鉴权时留空
     model: str
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
@@ -136,26 +136,6 @@ class LogLine(BaseModel):
     ts: str
     level: str
     message: str
-
-
-# ----------------------------- 开发模式 -----------------------------
-class QuickSampleIn(BaseModel):
-    """快速小样本试跑。"""
-    model_config = ConfigDict(populate_by_name=True)
-
-    model_cfg: ModelConfigIn = Field(alias="model_config")
-    judge_config: Optional[JudgeConfigIn] = None
-    use_judge: bool = False
-    benchmarks: List[str]
-    limit: int = 5
-    streaming: bool = False
-
-
-class DryRunIn(BaseModel):
-    """dry-run: 不调真实 API, 用模拟响应跑通流程。"""
-    model_name: str = "dry-run"
-    benchmarks: List[str]
-    limit: Optional[int] = None
 
 
 # ----------------------------- 管理员 -----------------------------

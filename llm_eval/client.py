@@ -88,6 +88,13 @@ class LLMClient:
             base = base + "/v1"
         self.endpoint = f"{base}/chat/completions"
 
+    def _headers(self) -> dict:
+        """构造请求头。api_key 为空时不发 Authorization (本地/自建无鉴权端点)。"""
+        h = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            h["Authorization"] = f"Bearer {self.config.api_key}"
+        return h
+
     def chat(
         self,
         prompt: str,
@@ -121,10 +128,7 @@ class LLMClient:
         if extra:
             payload.update(extra)
 
-        headers = {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = self._headers()
 
         last_err: Optional[str] = None
         req_start = time.time()
@@ -260,10 +264,7 @@ class LLMClient:
             payload.update(self.config.extra)
         if extra:
             payload.update(extra)
-        headers = {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = self._headers()
         last_err: Optional[str] = None
         for attempt in range(1, self.max_retries + 1):
             t0 = time.time()
@@ -322,10 +323,7 @@ class LLMClient:
             payload.update(self.config.extra)
         if extra:
             payload.update(extra)
-        headers = {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = self._headers()
 
         last_err: Optional[str] = None
         req_start = time.time()

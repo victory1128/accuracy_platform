@@ -28,3 +28,6 @@ sympy>=1.11.0
 # SWE-bench 代码 Agent 评测 (可选, 仅评测 SWE-bench Verified 时需要)
 # 注: 需 Python 3.10+ 用最新版; Python 3.9 用 2.0.0
 swebench==2.0.0
+nltk
+emoji
+syllapy

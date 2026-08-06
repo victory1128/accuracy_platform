@@ -61,8 +61,8 @@ def create_task(body: TaskCreateIn, user: dict = Depends(auth.current_user)):
     """提交评测任务。api_key 仅内存, 不落库。"""
     if not body.benchmarks:
         raise HTTPException(400, "请至少选择一个评测集")
-    if not body.model_cfg.api_key and body.mode != "dry_run":
-        raise HTTPException(400, "请填写被测模型 API Key (dry-run 模式可留空)")
+    # api_key 可选: 本地/自建端点无需鉴权时可留空 (real 模式仍建议填写)。
+    # 不再强制要求, 由 client 在空 key 时不发 Authorization 头。
 
     # 代码沙箱: HumanEval/MBPP 需执行模型生成的代码。
     # 所有登录用户均可提交 (代码在 docker/subprocess 沙箱里隔离执行, 安全);

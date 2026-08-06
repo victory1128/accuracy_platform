@@ -9,6 +9,7 @@ HumanEval / MBPP 风格: 给定 prompt (函数签名+docstring), 模型补全函
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -228,6 +229,89 @@ def _run_in_docker(code: str, timeout: float) -> Tuple[bool, str]:
         return False, "docker 未安装或不在 PATH (sandbox=docker 但无 docker)"
     except Exception as e:  # noqa: BLE001
         return False, f"docker 执行异常: {e}"
+
+
+def run_code_stdin(
+    program: str,
+    cases: list,
+    *,
+    timeout: Optional[float] = None,
+) -> Tuple[bool, str]:
+    """stdin 式评测: 对每个 case 独立运行 program, 喂 input, 规范化比对 stdout。
+
+    用于 LiveCodeBench-v6 的 stdin/stdout 式题 (AtCoder/Codeforces): 模型输出完整
+    程序, 评测时对每个 case 把 input 喂给程序 stdin, 比对程序 stdout 与期望 output。
+
+    cases: [{"input": "...", "output": "..."}, ...] (testtype==stdin 的用例)
+    比对: _norm_stdout 规范化后字符串相等 (容错末尾换行/行尾空白, 竞赛题输出常带末尾换行)。
+    沙箱: 复用 _SANDBOX(mode/image/memory/cpus/timeout), 与 run_code_tests 同一机制。
+         把"评测器脚本"作为 code 传给 _run_in_subprocess/_run_in_docker 跑一次:
+         评测器脚本内嵌被测 program + 全部 cases, 对每个 case 用 subprocess 跑一次
+         被测程序 (program 作为 -c 代码, input 喂 stdin), 汇总 pass/fail 后用
+         returncode (0=全过) + stdout 回传结果。docker 模式只需起一次容器 (不必每 case 起容器)。
+    返回 (全过=True, 首个失败 case 的摘要)。空 cases 视为失败 (无测试集无法判过)。
+    """
+    if not program or not cases:
+        return False, "无程序或无测试用例"
+    # 评测器脚本: 用 json.dumps 把 program/cases 嵌成 Python 字面量 (安全转义引号/换行),
+    # 拼到评测逻辑前。整段作为一个 .py 经 _run_in_subprocess/_run_in_docker 跑一次:
+    # 评测器对每 case 子进程跑被测程序 (python -c PROGRAM, input 喂 stdin), 规范化比对 stdout。
+    # 通过 exit code 回传: 0=全部通过, 1=有失败 (stdout 打印首个失败详情)。
+    runner = (
+        "import json, subprocess, sys\n\n"
+        f"PROGRAM = {json.dumps(program, ensure_ascii=False)}\n"
+        f"CASES = {json.dumps(cases, ensure_ascii=False)}\n\n"
+        f"{_stdin_runner_body}"
+    )
+    to = timeout if timeout is not None else _SANDBOX["timeout"]
+    if _SANDBOX["mode"] == "docker":
+        ok, err = _run_in_docker(runner, to)
+    else:
+        ok, err = _run_in_subprocess(runner, to)
+    if ok:
+        return True, ""
+    # 评测器脚本失败时 err 是它的 stdout/stderr (含 __FAIL__ 标记 + 首个失败详情);
+    # 若是超时/容器异常, err 是 _run_in_* 自己写的摘要。
+    return False, err or "stdin 评测未通过"
+
+
+# 评测器脚本主体 (program/cases 由 run_code_stdin 拼在前面): 对每个 case 子进程跑被测程序、
+# 喂 stdin、规范化比对 stdout。被测程序用 python -c 执行, 与真实竞赛环境一致 (读 stdin 写 stdout)。
+_stdin_runner_body = '''def _norm(s):
+    return "\\n".join(line.rstrip() for line in s.rstrip("\\n").split("\\n"))
+
+for i, c in enumerate(CASES):
+    inp = c.get("input", "")
+    exp = c.get("output", "")
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", PROGRAM],
+            input=inp, capture_output=True, text=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        print("__FAIL__ case %d: 超时" % i)
+        sys.exit(1)
+    except Exception as e:
+        print("__FAIL__ case %d: 执行异常 %s" % (i, e))
+        sys.exit(1)
+    if proc.returncode != 0:
+        print("__FAIL__ case %d: 程序异常退出 code=%d stderr=%s" % (i, proc.returncode, (proc.stderr or "")[:300]))
+        sys.exit(1)
+    if _norm(proc.stdout) != _norm(exp):
+        print("__FAIL__ case %d: 输出不匹配 got=%r want=%r" % (i, proc.stdout[:300], exp[:300]))
+        sys.exit(1)
+print("__ALL_PASS__")
+sys.exit(0)
+'''
+
+
+def _norm_stdout(s: str) -> str:
+    """规范化 stdout 用于比对: 去末尾换行 + 每行去行尾空白。
+
+    竞赛题输出常带末尾换行/行尾空格, 直接 == 比对会误判。规范化后字符串相等即通过。
+    (评测器脚本内有一份同名逻辑, 此函数供主进程侧如需比对时复用。)
+    """
+    return "\n".join(line.rstrip() for line in s.rstrip("\n").split("\n"))
 
 
 def compute_pass_at_k(n: int, c: int, k: int) -> float:

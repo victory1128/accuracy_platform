@@ -102,3 +102,53 @@ class AIME(_MathBenchmark):
         #   131072-> 端点实测 HTTP 200 (上限≥131072), 覆盖剩余极端长推理题。
         # 其它数学集 (gsm8k/math500) 仍用基类 8192, 思维链没那么长。
         return {"temperature": 0.0, "max_tokens": 131072, "stop": None}
+
+
+@register
+class HMMTFeb2025(_MathBenchmark):
+    """HMMT 2025 February (Harvard-MIT Mathematics Tournament).
+
+    MathArena 维护的竞赛数学评测集, 30 题, 答案为最终数值/表达式。
+    与 AIME 同属高难度竞赛数学, 思维链推理长, 用大 max_tokens。
+    数据源: MathArena/hmmt_feb_2025 (HF), 字段 problem/answer。
+    """
+    DATA_FILE = "hmmt_feb_2025.jsonl"
+    META = BenchmarkMeta(
+        name="hmmt_feb_2025",
+        display_name="HMMT-Feb-2025",
+        stage=Stage.PRETRAIN,
+        task_type=TaskType.GEN,
+        description="哈佛-MIT 数学锦标赛 2025年2月赛, 30题高难度竞赛数学",
+        tags=["modern", "math", "reasoning", "hard", "competition"],
+        num_fewshot=0,
+        source="MathArena 2025 (HMMT)",
+    )
+
+    def parse_params(self) -> dict:
+        # 竞赛级难题, 思维链推理极长 (同 AIME), 给足 max_tokens。
+        return {"temperature": 0.0, "max_tokens": 131072, "stop": None}
+
+
+@register
+class IMOAnswerBench(_MathBenchmark):
+    """IMO-AnswerBench: 国际数学奥林匹克短答案评测。
+
+    Google DeepMind 发布, 400 题, 答案为可验证短答案 (数字/表达式)。
+    涵盖 Algebra/Combinatorics/Geometry/Number Theory 四大类。
+    数据源: OpenEvals/IMO-AnswerBench (HF), 字段 Problem/Short Answer。
+    """
+    DATA_FILE = "imo_answerbench.jsonl"
+    META = BenchmarkMeta(
+        name="imo_answerbench",
+        display_name="IMO-AnswerBench",
+        stage=Stage.PRETRAIN,
+        task_type=TaskType.GEN,
+        description="国际数学奥林匹克短答案评测, 400题 (代数/组合/几何/数论)",
+        tags=["modern", "math", "reasoning", "hard", "competition"],
+        num_fewshot=0,
+        source="Google DeepMind 2025 (IMO-Bench)",
+    )
+
+    def parse_params(self) -> dict:
+        # 奥林匹克级难题, 思维链推理长 (同 AIME), 给足 max_tokens。
+        return {"temperature": 0.0, "max_tokens": 131072, "stop": None}
