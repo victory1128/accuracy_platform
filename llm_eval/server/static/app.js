@@ -349,7 +349,7 @@ function renderNewTask() {
       </div>
       <div class="row">
         <div><label>API Base URL</label><input type="text" id="m_base" value="${esc(mc.base_url)}" placeholder="https://api.deepseek.com/v1"></div>
-        <div><label>API Key 🔒 (仅内存)</label><input type="password" id="m_key" value="${esc(mc.api_key || '')}" placeholder="sk-..." autocomplete="off"></div>
+        <div><label>API Key 🔒 (可选, 仅内存)</label><input type="password" id="m_key" value="${esc(mc.api_key || '')}" placeholder="sk-... 本地/无鉴权端点可留空" autocomplete="off"></div>
       </div>
       <div class="row">
         <div><label>max_tokens (留空=用各评测集默认值, 如 IFEval 8192)</label><input type="number" id="m_maxtok" value="${mc.max_tokens ?? ''}" placeholder="如 4096, 留空则各评测集自带"></div>
