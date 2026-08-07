@@ -1,6 +1,6 @@
 # 全量评测覆盖记录 (FULL_COVERAGE)
 
-记录本平台对 `glm-5.2-fp8` 模型各评测集的**全量**评测情况(`limit=None`,样本数达到该集全集规模)。
+记录本平台对各模型(`glm-5.2-fp8` / `deepseek-v4-flash` 等)评测集的**全量**评测情况(`limit=None`,样本数达到该集全集规模)。
 用于追踪哪些集已做过严肃全量评测、对应任务 ID 与分数,避免重复跑或遗漏。
 
 > 部分样本数 = 全量数 即视为全量(个别集因数据源更新可能有 ±几条浮动)。
@@ -17,7 +17,7 @@
 | math500 | 预训练 | GEN | 500 |
 | mbpp | 预训练 | CODE | 257 |
 | winogrande | 预训练 | MCQ | 1267 |
-| truthfulqa | 预训练 | MCQ | 817 |
+| truthfulqa | 后训练 | MCQ | 817 |
 | ds1000 | 预训练 | CODE | 1000 |
 | simpleqa | 后训练 | GEN | 1000 |
 | gsm8k | 预训练 | GEN | 1319 |
@@ -28,6 +28,12 @@
 | imo_answerbench | 预训练 | GEN | 400 |
 | hmmt_feb_2025 | 预训练 | GEN | 30 |
 | livecodebench_v6 | 预训练 | CODE | 1054 |
+| truthfulqa_gen | 后训练 | GEN | 817 |
+| xstest | 后训练 | GEN | 450 |
+| agieval | 预训练 | MCQ | 5151 |
+| mmlu_pro | 预训练 | MCQ | 12032 |
+| mmlu_redux | 预训练 | MCQ | 5700 |
+| hle | 预训练 | GEN | 2500 |
 
 ## 已全量评测记录
 
@@ -145,13 +151,27 @@ ds1000 慢因单题平均吐 2214 token 思维链(慢题 max 15778),token 量是
 | imo_answerbench | 400 | - | - | #68 | 🔄 运行中 | 降并发 16, timeout 1800 |
 | hmmt_feb_2025 | 30 | - | - | #68 | 🔄 运行中 | 降并发 16, timeout 1800 |
 
+### 本次全量(任务 #72, 2026-08-07, model=**deepseek-v4-flash**)
+
+> 背景:补 4 个从未全量过的知识 MC/GEN 大集。配置:concurrency=16, timeout=1800, streaming=true。
+> ✅ **25,383 样本全部跑完,全程零错误、零 stall、零蒸发、零乱码**(对比 GLM-5.2 在高并发长输出下必 RST/stall)。
+> 分数经原始结果 JSON 逐样本核验:无样本丢失(分母完整)、截断仅轻微拉低(不虚高)、mojibake=0。
+
+| 评测集 | 全量数 | 分数 | 任务 ID | 状态 | 备注 |
+|--------|--------|------|---------|------|------|
+| agieval | 5151 | 80.3 | #72 | ✅ 全量 | 中文标准考试/推理;截断样本正确率 64% < 整体 80%,不虚高 |
+| mmlu_pro | 12032 | 59.5 | #72 | ✅ 全量 | 10选项+推理,天然比 MMLU 低 15-20 点,合理中强 |
+| mmlu_redux | 5700 | 89.9 | #72 | ✅ 全量 | MMLU 去噪重标版,通常比 MMLU 高 3-5 点,表现亮眼 |
+| hle | 2500 | 6.4 | #72 | ✅ 全量 | 精确匹配保守口径(官方用 LLM 裁判),真实能力或略高;160 条命中均为真匹配(无空vs空假阳性) |
+
+> **结论**:deepseek-v4-flash 知识/推理基线可信;AGIEval/MMLU-Redux 亮眼,HLE 为保守值。
+
 ## 未全量的评测集(待补)
 
 以下集尚未做过全量评测(仅小样本试跑或未跑过),后续可按需补全:
 
 | 评测集 | 阶段 | 类型 | 全量数 | 备注 |
 |--------|------|------|--------|------|
-| agieval | 预训练 | MCQ | 5151 | |
 | arc | 预训练 | MCQ | 1172 | |
 | arena_hard | 后训练 | JUDGE | 750 | 需裁判模型 |
 | alpaca_eval | 后训练 | JUDGE | 805 | 需裁判模型 |
@@ -162,13 +182,10 @@ ds1000 慢因单题平均吐 2214 token 思维链(慢题 max 15778),token 量是
 | evalplus | 预训练 | CODE | 164 | |
 | gpqa | 预训练 | MCQ | 198 | |
 | hellaswag | 预训练 | MCQ | 10042 | |
-| hle | 预训练 | GEN | 2500 | |
 | livecodebench | 预训练 | CODE | 442 | 单题耗时过长,暂缓 |
 | livecodebench_v6 | 预训练 | CODE | 1054 | release_v6全量(test+test2..test6共1055题,实测): 函数式444 + stdin610, 跳过1条other。stdin题解码private合并public(封顶: 单case≤50KB+单题≤200KB,裁剪压力测试级巨输入) |
 | longbench_v2 | 预训练 | MCQ | 503 | |
 | mmlu | 预训练 | MCQ | 14042 | |
-| mmlu_pro | 预训练 | MCQ | 12032 | |
-| mmlu_redux | 预训练 | MCQ | 5700 | |
 | mrcr | 预训练 | GEN | 2001 | 超长上下文 |
 | mt_bench | 后训练 | JUDGE | 80 | 需裁判模型 |
 | swebench | 预训练 | CODE | 500 | 需 swebench 包+预构建镜像 |

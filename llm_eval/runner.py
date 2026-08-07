@@ -118,6 +118,11 @@ class Runner:
             prompt = bench.build_prompt(sample)
             system = bench.system_prompt()
             try:
+                # 额外生成参数 (top_p/top_k/seed 等, 来自 override_params) 透传进 payload。
+                # client 的 extra kwarg 会 payload.update, 与现有 model_config.extra 合并
+                # (call-site extra 优先级最高)。None 的不传, 留给端点默认。
+                _extra = {k: params[k] for k in ("top_p", "top_k", "seed")
+                          if k in params and params[k] is not None}
                 if self.streaming:
                     response, usage = self.client.chat_stream(
                         prompt,
@@ -125,6 +130,7 @@ class Runner:
                         temperature=params.get("temperature", 0.0),
                         max_tokens=params.get("max_tokens", 2048),
                         stop=params.get("stop"),
+                        extra=_extra or None,
                     )
                 else:
                     response, usage = self.client.chat(
@@ -133,6 +139,7 @@ class Runner:
                         temperature=params.get("temperature", 0.0),
                         max_tokens=params.get("max_tokens", 2048),
                         stop=params.get("stop"),
+                        extra=_extra or None,
                     )
             except LLMClientError as e:
                 # 出错也要补全可追溯/长度字段 (request_hash/prompt_chars 等),

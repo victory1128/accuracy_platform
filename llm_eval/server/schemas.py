@@ -49,6 +49,11 @@ class ModelConfigIn(BaseModel):
     model: str
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    # 额外生成参数 (留空=None=不传, 用端点默认; 与采样 seed 无关)。
+    # 走 override_params 通道 (同 temperature/max_tokens), 进 gen_params 报告可见。
+    top_p: Optional[float] = None      # 核采样概率 (0~1)
+    top_k: Optional[int] = None        # top-k 采样
+    seed: Optional[int] = None         # 模型生成 seed (输出可复现); 与"采样 seed"(抽题)是两回事
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 

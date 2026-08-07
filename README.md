@@ -7,9 +7,9 @@
 ## 特性
 
 - **统一 API 客户端**: 一套 OpenAI 兼容客户端覆盖 DeepSeek / Kimi(Moonshot) / Qwen / GLM / OpenAI 等, 不依赖厂商 SDK
-- **18 个评测集** (可扩展), 按训练阶段分类:
-  - **预训练** (知识/推理/代码): MMLU, MMLU-Pro, GPQA-Diamond, C-Eval, CMMLU, ARC, HellaSwag, WinoGrande, TruthfulQA, GSM8K, MATH-500, AIME, HumanEval, MBPP
-  - **后训练** (指令遵循/对齐): IFEval, MT-Bench, AlpacaEval 2.0, Arena-Hard
+- **40+ 个评测集** (可扩展), 按训练阶段分类:
+  - **预训练** (知识/推理/代码): MMLU, MMLU-Pro, GPQA-Diamond, C-Eval, CMMLU, ARC, HellaSwag, WinoGrande, GSM8K, MATH-500, AIME, HumanEval, MBPP
+  - **后训练** (指令遵循/对齐/事实性/安全): IFEval, MT-Bench, AlpacaEval 2.0, Arena-Hard, TruthfulQA, TruthfulQA-GEN, XSTest, SimpleQA, BFCL
 - **多种评分方式**: 选项精确匹配 / 数字抽取匹配 / 代码执行 pass@1 / LLM 裁判打分 / 规则可验证
 - **乱码分析**: 检测 mojibake 编码乱码、重复退化(repetition degeneration)、控制字符、异常字符集、语言不一致、截断、空输出, 给出健康度等级
 - **双入口**: 命令行 (CLI) 自动化批跑 + 本地 Web 控制台可视化配置与查看
@@ -140,7 +140,7 @@ server:
 | arc | 预训练 | MCQ | 小学科学推理 |
 | hellaswag | 预训练 | MCQ | 常识续写 |
 | winogrande | 预训练 | MCQ | 共指消解 |
-| truthfulqa | 预训练 | MCQ | 真实性问答 |
+| truthfulqa | 后训练 | MCQ | 真实性问答(幻觉/事实对齐) |
 | agieval | 预训练 | MCQ | 高考/LSAT/SAT等标准化考试(中英) |
 | bbh | 预训练 | GEN | 23项难推理任务 |
 | gsm8k | 预训练 | GEN | 小学数学 |
@@ -169,6 +169,8 @@ server:
 | mt_bench | 后训练 | JUDGE | 多轮对话, 裁判打分 |
 | alpaca_eval | 后训练 | JUDGE | 回答质量胜率 |
 | arena_hard | 后训练 | JUDGE | 高难度指令配对胜率 |
+| truthfulqa_gen | 后训练 | GEN | 开放式事实性问答(生成版), 幻觉/事实对齐 |
+| xstest | 后训练 | GEN | 过度拒绝评测(安全对齐), 按label分层 |
 
 > 标注 JUDGE 的评测集需要配置裁判模型 (`config.yaml` 的 `judge`)。
 > 标注 CODE 的评测集需要启用代码沙箱 (见下节); BigCodeBench/DS-1000 需数据科学库镜像, SWE-bench 需 swebench 包+Docker+预构建镜像。

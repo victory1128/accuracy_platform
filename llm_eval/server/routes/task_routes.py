@@ -91,6 +91,11 @@ def create_task(body: TaskCreateIn, user: dict = Depends(auth.current_user)):
         # None=用评测集自带值(如 IFEval 8192/代码 4096)。
         "max_tokens": body.model_cfg.max_tokens if body.model_cfg.max_tokens else None,
         "temperature": body.model_cfg.temperature if body.model_cfg.temperature is not None else None,
+        # 额外生成参数 (留空=None=不传): 走 override_params 通道, 进 payload + gen_params。
+        "top_p": body.model_cfg.top_p,
+        "top_k": body.model_cfg.top_k,
+        # 模型生成 seed (输出可复现); 与"采样 seed"(抽题)无关, 别混。
+        "seed": body.model_cfg.seed,
         # 单请求硬超时(秒): None=用平台默认 1200。跟随到 LLMClient._hard_timeout。
         "timeout": body.timeout,
     }

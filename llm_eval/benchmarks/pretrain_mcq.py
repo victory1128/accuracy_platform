@@ -210,10 +210,11 @@ class TruthfulQA(_MCQBenchmark):
     META = BenchmarkMeta(
         name="truthfulqa",
         display_name="TruthfulQA (MC1)",
-        stage=Stage.PRETRAIN,
+        # 测幻觉/事实性对齐, 属经典后训练指标 (与 GEN 版配套)。
+        stage=Stage.POSTTRAIN,
         task_type=TaskType.MCQ,
-        description="真实性问答, 检测模型是否会模仿人类误解",
-        tags=["classic", "truthfulness"],
+        description="真实性问答, 检测模型是否会模仿人类误解 (幻觉/事实对齐, 后训练指标)",
+        tags=["classic", "truthfulness", "factual"],
         num_fewshot=0,
         source="Lin et al. 2022",
     )

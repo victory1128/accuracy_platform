@@ -9,4 +9,4 @@
 
 # 版本号是全项目唯一数据源: CLI / FastAPI app / /api/server-info 都引用它。
 # 版本管理规范见 CHANGELOG.md 顶部。语义化版本: MAJOR.MINOR.PATCH。
-__version__ = "1.2.0"
+__version__ = "1.3.0"

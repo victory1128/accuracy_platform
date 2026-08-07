@@ -317,7 +317,9 @@ async function stopTask(id) {
 function renderNewTask() {
   const clone = JSON.parse(sessionStorage.getItem('clone') || 'null');
   sessionStorage.removeItem('clone');
-  const mc = (clone && clone.model_config) || { name: '', base_url: '', api_key: '', model: '', temperature: 0.0, max_tokens: 2048, extra: {} };
+  // 新任务默认: 生成参数全留空 (null), 由各评测集自带值 / 端点默认决定 (见"运行参数-生成参数")。
+  // clone 时用 model_config 回填 (可能带实际值)。
+  const mc = (clone && clone.model_config) || { name: '', base_url: '', api_key: '', model: '', temperature: null, max_tokens: null, top_p: null, top_k: null, seed: null, extra: {} };
   const jc = (clone && clone.judge_config) || { name: '', base_url: '', api_key: '', model: '', max_tokens: 256 };
   const rp = clone ? clone : { benchmarks: [], limit: '', concurrency: '', streaming: false, debug: false, mode: 'real', name: '', timeout: '' };
   const checked = new Set(rp.benchmarks || []);
@@ -351,10 +353,6 @@ function renderNewTask() {
         <div><label>API Base URL</label><input type="text" id="m_base" value="${esc(mc.base_url)}" placeholder="https://api.deepseek.com/v1"></div>
         <div><label>API Key 🔒 (可选, 仅内存)</label><input type="password" id="m_key" value="${esc(mc.api_key || '')}" placeholder="sk-... 本地/无鉴权端点可留空" autocomplete="off"></div>
       </div>
-      <div class="row">
-        <div><label>max_tokens (留空=用各评测集默认值, 如 IFEval 8192)</label><input type="number" id="m_maxtok" value="${mc.max_tokens ?? ''}" placeholder="如 4096, 留空则各评测集自带"></div>
-        <div><label>temperature (留空=用各评测集默认值)</label><input type="number" step="0.1" id="m_temp" value="${mc.temperature ?? ''}" placeholder="如 0.0, 留空则各评测集自带"></div>
-      </div>
     </div>
     <div class="card">
       <div class="card-title">裁判模型 (可选, MT-Bench/AlpacaEval/Arena-Hard 需要)</div>
@@ -373,9 +371,19 @@ function renderNewTask() {
     <div class="card">
       <div class="card-title">运行参数</div>
       <div class="row">
-        <div><label>每集采样条数 (留空=全量, 即跑各评测集卡片显示的总条数)</label><input type="number" id="f_limit" value="${rp.limit ?? ''}" placeholder="如 5, 留空=全量"></div>
+        <div><label>每集采样条数</label><input type="number" id="f_limit" value="${rp.limit ?? ''}" placeholder="留空=全量, 如 5"></div>
         <div><label>并发数</label><input type="number" id="f_conc" value="${rp.concurrency ?? ''}" placeholder="默认 4"></div>
-        <div><label>单题超时 (秒, 留空=1200即20分钟)</label><input type="number" id="f_timeout" value="${rp.timeout ?? ''}" placeholder="如 1200, 留空=默认1200"></div>
+        <div><label>单题超时 (秒)</label><input type="number" id="f_timeout" value="${rp.timeout ?? ''}" placeholder="留空=1200 (20min)"></div>
+      </div>
+      <div class="card-title" style="margin-top:14px">生成参数 (留空=用各评测集自带值或端点默认)</div>
+      <div class="row">
+        <div><label>max_tokens</label><input type="number" id="m_maxtok" value="${mc.max_tokens ?? ''}" placeholder="留空=评测集自带 (如 IFEval 8192)"></div>
+        <div><label>temperature</label><input type="number" step="0.1" id="m_temp" value="${mc.temperature ?? ''}" placeholder="留空=评测集自带"></div>
+      </div>
+      <div class="row">
+        <div><label>top_p</label><input type="number" step="0.01" id="m_top_p" value="${mc.top_p ?? ''}" placeholder="0~1, 如 0.9, 留空=不传"></div>
+        <div><label>top_k</label><input type="number" id="m_top_k" value="${mc.top_k ?? ''}" placeholder="如 50, 留空=不传"></div>
+        <div><label>seed</label><input type="number" id="m_seed" value="${mc.seed ?? ''}" placeholder="如 42, 留空=不传 (与采样seed无关)"></div>
       </div>
       <div class="row" style="margin-top:6px">
         <label style="display:inline"><input type="checkbox" id="f_stream" ${rp.streaming ? 'checked' : ''} style="width:auto"> 流式调用 (统计真实 TTFT/TPOT)</label>
@@ -407,6 +415,11 @@ async function submitTask() {
       // 留空=null -> 后端用各评测集自带 max_tokens/temperature
       max_tokens: document.getElementById('m_maxtok').value ? parseInt(document.getElementById('m_maxtok').value) : null,
       temperature: document.getElementById('m_temp').value !== '' ? parseFloat(document.getElementById('m_temp').value) : null,
+      // 额外生成参数: 留空=null=不传 (走 override_params 通道, 进 payload + gen_params 报告)
+      top_p: document.getElementById('m_top_p').value !== '' ? parseFloat(document.getElementById('m_top_p').value) : null,
+      top_k: document.getElementById('m_top_k').value !== '' ? parseInt(document.getElementById('m_top_k').value) : null,
+      // 模型生成 seed (输出可复现); 与"采样 seed"(抽题)无关
+      seed: document.getElementById('m_seed').value !== '' ? parseInt(document.getElementById('m_seed').value) : null,
     },
     use_judge: document.getElementById('use_judge').checked,
     judge_config: document.getElementById('use_judge').checked ? {

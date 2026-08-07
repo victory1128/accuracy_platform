@@ -45,6 +45,20 @@ git push origin main --tags
 
 ---
 
+## [1.3.0] — 2026-08-06
+
+### 新增
+
+- **TruthfulQA-GEN**(`truthfulqa_gen`, 后训练/GEN, 817 题):开放式事实性问答生成版,与现有 TruthfulQA(MC1) 同源但用官方 generation 任务——模型自由作答,判定其是否与任一 `correct_answers` 语义一致,专门测**幻觉/事实性对齐**。评分:宽松匹配(`_loose_match`,复用 simpleqa)为先,配了 LLM judge 时升级为语义一致性 yes/no 判定;judge 缺失不阻塞。数据 `data/truthfulqa_gen.jsonl`(question/gold/correct_answers/incorrect_answers)。
+- **XSTest 过度拒绝**(`xstest`, 后训练/GEN, 450 题 = 250 safe + 200 unsafe):安全对齐评测,测模型是否误拒安全 prompt。评分:官方 strmatch 前缀拒绝词表判"拒绝/遵从"为先,配了 LLM judge 时升级为全遵从/全拒绝/部分拒绝三分类;`aggregate` **按 label 分层**,报 `compliance_rate_safe` / `refusal_rate_unsafe` + 合成分 `xstest_score`(单一 accuracy 会因 56/44 不均衡误导)。数据 `data/xstest.jsonl`(Paul/XSTest, 非 gated)。
+- **提交任务支持额外生成参数 `top_p` / `top_k` / `seed`**(`schemas.py:ModelConfigIn`、`task_routes.py`、`taskman.py`、`runner.py`):前端表单新增 3 个输入框,经 `override_params` 通道透传进生成 payload 与 `gen_params` 报告。留空 `None` 则不传(用端点默认)。**注意**:这里的 `seed` 是"模型生成 seed"(输出可复现,进 payload 的 `seed` 字段),与 `run_params` 里 `seed:42` 的"采样 seed"(抽训练题)是两回事,互不干扰。
+
+### 变更
+
+- **TruthfulQA(MC1) 挪 stage `pretrain` → `posttrain`**(`pretrain_mcq.py`):它是测幻觉/事实性对齐的经典后训练指标,标 `pretrain` 是沿用旧生态的笼统分类。MMLU/GSM8K/HumanEval 等测"最终能力"的集保持 `pretrain` 不动(避免误导)。
+
+---
+
 ## [1.2.0] — 2026-08-05
 
 ### 新增

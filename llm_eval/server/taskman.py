@@ -671,12 +671,21 @@ def _run_one(task_id: int):
                 run_params = {"concurrency": concurrency or 4, "max_retries": 3, "timeout": rp.get("timeout") or 1200, "seed": 42}
                 if limit is not None:
                     run_params["limit"] = limit
-                # 用户级生成参数覆盖 (max_tokens/temperature): 强制覆盖各评测集自带值
+                # 用户级生成参数覆盖 (max_tokens/temperature/top_p/top_k/seed):
+                # 强制覆盖各评测集自带值; None 的不覆盖 (用评测集/端点默认)。
+                # 注: 这里的 seed 是"模型生成 seed"(进 payload), 与 run_params["seed"]=42
+                # 的"采样 seed"(抽题) 是两回事, 互不干扰。
                 override = {}
                 if rp.get("max_tokens"):
                     override["max_tokens"] = rp["max_tokens"]
                 if rp.get("temperature") is not None:
                     override["temperature"] = rp["temperature"]
+                if rp.get("top_p") is not None:
+                    override["top_p"] = rp["top_p"]
+                if rp.get("top_k") is not None:
+                    override["top_k"] = rp["top_k"]
+                if rp.get("seed") is not None:
+                    override["seed"] = rp["seed"]
                 runner = Runner(
                     model_config=model,
                     judge_config=judge,

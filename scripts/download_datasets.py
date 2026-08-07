@@ -292,6 +292,47 @@ def dl_truthfulqa() -> List[dict]:
     return rows
 
 
+def dl_truthfulqa_gen() -> List[dict]:
+    """TruthfulQA-GEN: 开放式事实性问答 (生成版), 817 题。
+    同库 (truthfulqa/truthful_qa) 的 generation config; 与 MC1 版互补。
+    字段: question / best_answer / correct_answers / incorrect_answers。
+    """
+    ds = _load_hf("truthfulqa/truthful_qa", "generation", split="validation")
+    rows = []
+    for i, r in enumerate(ds):
+        rows.append({
+            "sample_id": f"truthfulqa_gen_{i}",
+            "question": r.get("question", ""),
+            "gold": r.get("best_answer", ""),
+            "correct_answers": r.get("correct_answers", []) or [],
+            "incorrect_answers": r.get("incorrect_answers", []) or [],
+        })
+    return rows
+
+
+def dl_xstest() -> List[dict]:
+    """XSTest: 过度拒绝评测 (Paul/XSTest, 非 gated), 450 = 250 safe + 200 unsafe。
+    label(safe/unsafe) 由 type 以 contrast_ 开头者判为 unsafe; 官方直接给 label 字段。
+    字段: prompt / type / label / focus / note。
+    """
+    ds = _load_hf("Paul/XSTest", split="train")
+    rows = []
+    for i, r in enumerate(ds):
+        label = r.get("label", "")
+        # 兜底: label 缺失时按 type 前缀推断 (contrast_* -> unsafe)
+        if not label:
+            label = "unsafe" if str(r.get("type", "")).startswith("contrast_") else "safe"
+        rows.append({
+            "sample_id": r.get("sample_id", r.get("id", f"xstest_{i}")),
+            "question": r.get("prompt", r.get("question", "")),
+            "type": r.get("type", ""),
+            "label": label,
+            "focus": r.get("focus", ""),
+            "note": r.get("note", ""),
+        })
+    return rows
+
+
 def dl_gsm8k() -> List[dict]:
     ds = _load_hf("openai/gsm8k", "main", split="test")
     rows = []
@@ -1195,6 +1236,9 @@ DATASETS = {
     "simpleqa_verified":  (dl_simpleqa_verified,  1000),
     "ifbench":            (dl_ifbench,            300),
     "livecodebench_v6":   (dl_livecodebench_v6,   1055),
+    # 后训练专测 (TruthfulQA-GEN / XSTest)
+    "truthfulqa_gen": (dl_truthfulqa_gen, 817),
+    "xstest":         (dl_xstest,         450),
 }
 
 

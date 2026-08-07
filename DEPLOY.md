@@ -210,6 +210,7 @@ python scripts/download_datasets.py                 # 下载全部(耗时较长,
 |---|---|---|
 | mmlu / gsm8k / humaneval / mbpp / math500 | <10MB | 必下(核心基线) |
 | mmlu_pro / bbh / ceval / cmmlu | 3-9MB | 推荐下 |
+| truthfulqa_gen / xstest | <10MB | 推荐下(后训练: 事实性/过度拒绝专测) |
 | corpusqa.jsonl | **1.06GB** | 按需(单条很长, 全量极慢) |
 | longbench_v2.jsonl | **465MB** | 按需 |
 
@@ -281,7 +282,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8765 (Press CTRL+C to quit)
 ```bash
 # 服务端信息(无需登录)
 curl http://127.0.0.1:8765/api/server-info
-# 期望: {"version":"1.0.0","code_exec_enabled":true/false,"code_exec_sandbox":"...","benchmarks_count":34}
+# 期望: {"version":"1.3.0","code_exec_enabled":true/false,"code_exec_sandbox":"...","benchmarks_count":41}
 
 # 评测集目录(看数据集是否到位, num_samples>0 即已下载)
 curl http://127.0.0.1:8765/api/benchmarks | python -m json.tool | head
